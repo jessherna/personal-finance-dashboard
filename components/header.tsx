@@ -8,6 +8,9 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import { mockAccounts } from "@/lib/data/accounts"
+import { useAuth } from "@/contexts/auth-context"
+import { UserSwitcher } from "@/components/user-switcher"
+import { NotificationDropdown } from "@/components/notification-dropdown"
 import type { Account } from "@/lib/types"
 
 interface HeaderProps {
@@ -19,16 +22,38 @@ interface HeaderProps {
 
 export function Header({ title, selectedAccountId, onAccountSelect, accounts: propsAccounts }: HeaderProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const { user, isViewingAsUser, canViewAs, effectiveUser } = useAuth()
   const accounts = propsAccounts || mockAccounts
   const selectedAccount = selectedAccountId ? accounts.find((a) => a.id === selectedAccountId) : null
+  
+  // When viewing as a user, show account selector (using mock data)
+  const showAccountSelector = onAccountSelect && (isViewingAsUser || user?.role === "user")
+
+  // Get user initials for avatar fallback
+  const getUserInitials = (name: string) => {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2)
+  }
+
+  // Show actual logged-in user (never show real user data when viewing as)
+  const userName = user?.name || "Guest"
+  const userInitials = user ? getUserInitials(user.name) : "GU"
+  const userAvatar = user?.avatar || "/placeholder-user.jpg"
 
   return (
     <header className="sticky top-0 z-10 flex h-16 items-center justify-between gap-4 border-b border-border bg-background px-4 sm:px-6 lg:px-8">
       <h1 className="text-xl font-semibold text-foreground sm:text-2xl">{title}</h1>
 
       <div className="flex items-center gap-2 sm:gap-4">
+        {/* View As Switcher (for admin/dev) */}
+        {canViewAs && <UserSwitcher />}
+        
         {/* Account Selector */}
-        {onAccountSelect && (
+        {showAccountSelector && (
           <Select
             value={selectedAccountId ? String(selectedAccountId) : "all"}
             onValueChange={(value) => onAccountSelect(value === "all" ? null : parseInt(value))}
@@ -105,23 +130,15 @@ export function Header({ title, selectedAccountId, onAccountSelect, accounts: pr
           />
         </div>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="relative focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label="View notifications"
-        >
-          <Bell className="h-5 w-5" aria-hidden="true" />
-          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive" aria-label="1 unread notification" />
-        </Button>
+        <NotificationDropdown />
 
         <div className="hidden items-center gap-3 sm:flex">
           <Avatar className="h-9 w-9" aria-label="User profile">
-            <AvatarImage src="/placeholder.svg?height=36&width=36" alt="John Doe" />
-            <AvatarFallback>JD</AvatarFallback>
+            <AvatarImage src={userAvatar} alt={userName} />
+            <AvatarFallback>{userInitials}</AvatarFallback>
           </Avatar>
           <div className="text-sm">
-            <div className="font-medium">John Doe</div>
+            <div className="font-medium">{userName}</div>
           </div>
         </div>
       </div>
