@@ -5,6 +5,7 @@ import "./globals.css"
 import { AuthProvider } from "@/contexts/auth-context"
 import { NotificationProvider } from "@/contexts/notification-context"
 import { Toaster } from "@/components/ui/sonner"
+import { PDFWorkerInit } from "@/components/pdf-worker-init"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -49,6 +50,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="scroll-smooth">
       <body className={`${inter.className} antialiased`}>
+        <PDFWorkerInit />
         <AuthProvider>
           <NotificationProvider>
             {children}
