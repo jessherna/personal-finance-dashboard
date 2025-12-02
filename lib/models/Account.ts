@@ -6,7 +6,8 @@ export interface IAccount extends Document {
   userId: number
   name: string
   type: "checking" | "savings" | "credit_card" | "investment" | "loan" | "other"
-  balance: number // in cents
+  balance: number // in cents (for non-credit cards)
+  limit?: number // in cents (for credit cards only - credit limit)
   currency: string
   bankName?: string
   accountNumber?: string
@@ -25,6 +26,7 @@ const AccountSchema = new Schema<IAccount>(
     name: { type: String, required: true },
     type: { type: String, enum: ["checking", "savings", "credit_card", "investment", "loan", "other"], required: true },
     balance: { type: Number, required: true, default: 0 },
+    limit: { type: Number }, // Credit limit for credit cards (in cents)
     currency: { type: String, required: true, default: "C$" },
     bankName: { type: String },
     accountNumber: { type: String },

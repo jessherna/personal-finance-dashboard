@@ -14,11 +14,13 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowUpRight, ArrowDownRight } from "lucide-react"
+import { ArrowUpRight, ArrowDownRight, AlertCircle } from "lucide-react"
 import type { ExtractedTransaction } from "@/lib/utils/pdf-parser"
 import { formatDate } from "@/lib/utils/date"
 import { useAuth } from "@/contexts/auth-context"
+import { cn } from "@/lib/utils"
 import type { TransactionCategory, TransactionStatus, Account, BudgetCategory, SavingsGoal, RecurringBill } from "@/lib/types"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 const DEFAULT_CATEGORIES: TransactionCategory[] = [
   "Salary",
@@ -60,6 +62,7 @@ export function TransactionPreviewTable({
     }))
   )
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null)
+  const [accountError, setAccountError] = useState<string>("")
 
   const toggleSelection = (index: number) => {
     const newSelected = new Set(selectedIds)
@@ -86,15 +89,23 @@ export function TransactionPreviewTable({
   }
 
   const handleConfirm = () => {
+    // Require account selection
+    if (selectedAccountId === null) {
+      setAccountError("Please select an account to import transactions.")
+      return // Don't proceed if no account is selected
+    }
+    
+    setAccountError("")
     // Apply bulk account selection to all selected transactions
     const selectedTransactions = editedTransactions
       .filter((_, index) => selectedIds.has(index))
       .map((t) => ({
         ...t,
-        accountId: selectedAccountId ?? t.accountId ?? null,
+        accountId: selectedAccountId,
         status: "completed" as const,
         time: "00:00",
       }))
+    
     onConfirm(selectedTransactions, selectedAccountId)
   }
 
@@ -171,14 +182,17 @@ export function TransactionPreviewTable({
         </div>
         <div className="flex items-center gap-3">
           <Select 
-            value={selectedAccountId ? String(selectedAccountId) : "none"} 
-            onValueChange={(value) => setSelectedAccountId(value === "none" ? null : parseInt(value))}
+            value={selectedAccountId ? String(selectedAccountId) : ""} 
+            onValueChange={(value) => {
+              setSelectedAccountId(parseInt(value))
+              setAccountError("") // Clear error when account is selected
+            }}
+            required
           >
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="Select account (optional)" />
+            <SelectTrigger className={cn("w-48", accountError && "border-destructive")}>
+              <SelectValue placeholder="Select account (required)" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="none">No account</SelectItem>
               {activeAccounts.map((account) => (
                 <SelectItem key={account.id} value={String(account.id)}>
                   {account.name}
@@ -193,14 +207,14 @@ export function TransactionPreviewTable({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-12">
+              <TableHead className="w-12 sticky left-0 z-20 bg-muted/50 border-r border-border/50">
                 <Checkbox
                   checked={selectedIds.size === transactions.length && transactions.length > 0}
                   onCheckedChange={toggleAll}
                 />
               </TableHead>
-              <TableHead>Transaction Name</TableHead>
-              <TableHead>Type</TableHead>
+              <TableHead className="sticky left-[73px] z-20 bg-muted/50 border-r border-border/50">Transaction Name</TableHead>
+              <TableHead className="sticky left-[280px] z-20 bg-muted/50 border-r border-border/50">Type</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Amount (C$)</TableHead>
               <TableHead>Date</TableHead>
@@ -218,14 +232,14 @@ export function TransactionPreviewTable({
               </TableRow>
             ) : (
               editedTransactions.map((transaction, index) => (
-                <TableRow key={index}>
-                  <TableCell>
+                <TableRow key={index} className="group">
+                  <TableCell className="sticky left-0 z-10 bg-background group-hover:bg-muted/50 border-r border-border/50">
                     <Checkbox
                       checked={selectedIds.has(index)}
                       onCheckedChange={() => toggleSelection(index)}
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="sticky left-[73px] z-10 bg-background group-hover:bg-muted/50 border-r border-border/50">
                     <Input
                       value={transaction.name}
                       onChange={(e) => updateTransaction(index, "name", e.target.value)}
@@ -233,7 +247,7 @@ export function TransactionPreviewTable({
                       placeholder="Transaction name"
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="sticky left-[280px] z-10 bg-background group-hover:bg-muted/50 border-r border-border/50">
                     <Select
                       value={transaction.type}
                       onValueChange={(value: "income" | "expense") =>
@@ -342,11 +356,23 @@ export function TransactionPreviewTable({
         </Table>
       </div>
 
+      {(selectedAccountId === null || accountError) && (
+        <Alert className={cn(
+          "border-yellow-500/50 bg-yellow-500/10",
+          accountError && "border-destructive/50 bg-destructive/10"
+        )}>
+          <AlertCircle className="h-4 w-4 text-yellow-600" />
+          <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+            {accountError || "Please select an account to import transactions. Account selection is required."}
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="flex justify-end gap-3">
         <Button variant="outline" onClick={onCancel}>
           Cancel
         </Button>
-        <Button onClick={handleConfirm} disabled={selectedIds.size === 0}>
+        <Button onClick={handleConfirm} disabled={selectedIds.size === 0 || selectedAccountId === null}>
           Import {selectedIds.size} Transaction{selectedIds.size !== 1 ? "s" : ""}
         </Button>
       </div>

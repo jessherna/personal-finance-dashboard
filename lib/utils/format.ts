@@ -8,6 +8,18 @@ export function formatCurrency(amount: number, currency: string = DEFAULT_CURREN
 }
 
 /**
+ * Formats an amount in cents to currency string with commas for thousands
+ * Example: 1234567 -> "C$12,345.67"
+ */
+export function formatCurrencyFromCents(amountInCents: number, currency: string = "C$"): string {
+  const amount = amountInCents / 100
+  return `${currency}${amount.toLocaleString("en-CA", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`
+}
+
+/**
  * Formats a large number as a shortened string (e.g., 1000 -> 1k)
  */
 export function formatCompactNumber(value: number): string {

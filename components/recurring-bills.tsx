@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -20,8 +20,11 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus, Edit, Trash2, Calendar, Repeat, DollarSign } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { RecurringBill, RecurringFrequency } from "@/lib/types"
-import { mockBudgetCategories } from "@/lib/data/budget"
+import { useAuth } from "@/contexts/auth-context"
+import { getCurrentDateInToronto } from "@/lib/utils/date"
+import { formatCurrencyFromCents } from "@/lib/utils/format"
+import { toast } from "sonner"
+import type { RecurringBill, RecurringFrequency, BudgetCategory } from "@/lib/types"
 
 const FREQUENCY_OPTIONS: { value: RecurringFrequency; label: string }[] = [
   { value: "daily", label: "Daily" },
@@ -62,11 +65,41 @@ interface RecurringBillsProps {
 }
 
 export function RecurringBills({ bills: initialBills, setBills: setInitialBills }: RecurringBillsProps) {
+  const { user, isViewingAsUser } = useAuth()
   const [bills, setBills] = useState<RecurringBill[]>(initialBills || [])
+  const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>([])
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [selectedBillId, setSelectedBillId] = useState<number | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
+
+  // Fetch budget categories from API
+  useEffect(() => {
+    const fetchBudgetCategories = async () => {
+      if (!user) return
+
+      try {
+        const effectiveUserId = isViewingAsUser ? 2 : user.id
+        const response = await fetch("/api/budget-categories", {
+          headers: {
+            "x-user-id": String(effectiveUserId),
+            "x-user-role": user.role || "user",
+          },
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          setBudgetCategories(data)
+        }
+      } catch (error) {
+        console.error("Error fetching budget categories:", error)
+      }
+    }
+
+    fetchBudgetCategories()
+  }, [user, isViewingAsUser])
   const [newBill, setNewBill] = useState({
     name: "",
     amount: "",
@@ -100,57 +133,105 @@ export function RecurringBills({ bills: initialBills, setBills: setInitialBills 
     }
   }
 
-  const handleAddBill = () => {
-    if (!newBill.name.trim() || !newBill.amount || !newBill.nextDueDate) return
+  const handleAddBill = async () => {
+    if (!newBill.name.trim() || !newBill.amount || !newBill.nextDueDate || !user) return
 
     const amount = parseFloat(newBill.amount)
     if (isNaN(amount) || amount <= 0) return
 
-    const budgetCategoryId = newBill.budgetCategoryId === "none" || newBill.budgetCategoryId === ""
-      ? null
-      : typeof newBill.budgetCategoryId === "string"
-        ? parseInt(newBill.budgetCategoryId)
-        : newBill.budgetCategoryId
+    try {
+      setIsSaving(true)
+      const effectiveUserId = isViewingAsUser ? 2 : user.id
 
-    const bill: RecurringBill = {
-      id: Math.max(...bills.map((b) => b.id), 0) + 1,
-      name: newBill.name.trim(),
-      amount: Math.round(amount * 100), // Convert to cents
-      frequency: newBill.frequency,
-      nextDueDate: newBill.nextDueDate,
-      category: newBill.category,
-      icon: newBill.icon,
-      color: newBill.color,
-      isActive: newBill.isActive,
-      notes: newBill.notes || undefined,
-      budgetCategoryId: budgetCategoryId,
+      const budgetCategoryId = newBill.budgetCategoryId === "none" || newBill.budgetCategoryId === ""
+        ? null
+        : typeof newBill.budgetCategoryId === "string"
+          ? parseInt(newBill.budgetCategoryId)
+          : newBill.budgetCategoryId
+
+      const response = await fetch("/api/recurring-bills", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": String(effectiveUserId),
+          "x-user-role": user.role || "user",
+        },
+        body: JSON.stringify({
+          name: newBill.name.trim(),
+          amount: Math.round(amount * 100), // Convert to cents
+          frequency: newBill.frequency,
+          nextDueDate: newBill.nextDueDate,
+          category: newBill.category,
+          icon: newBill.icon,
+          color: newBill.color,
+          isActive: newBill.isActive,
+          notes: newBill.notes || undefined,
+          budgetCategoryId: budgetCategoryId,
+        }),
+      })
+
+      if (response.ok) {
+        const bill = await response.json()
+        updateBills([...bills, bill])
+        setNewBill({
+          name: "",
+          amount: "",
+          frequency: "monthly",
+          nextDueDate: "",
+          category: "Subscription",
+          icon: "📦",
+          color: CATEGORY_COLORS[0],
+          isActive: true,
+          notes: "",
+          budgetCategoryId: null,
+        })
+        setIsAddDialogOpen(false)
+        toast.success("Recurring bill created successfully")
+      } else {
+        const error = await response.json()
+        toast.error(error.error || "Failed to create recurring bill")
+      }
+    } catch (error) {
+      console.error("Error creating recurring bill:", error)
+      toast.error("Failed to create recurring bill")
+    } finally {
+      setIsSaving(false)
     }
-
-    updateBills([...bills, bill])
-    setNewBill({
-      name: "",
-      amount: "",
-      frequency: "monthly",
-      nextDueDate: "",
-      category: "Subscription",
-      icon: "📦",
-      color: CATEGORY_COLORS[0],
-      isActive: true,
-      notes: "",
-      budgetCategoryId: null,
-    })
-    setIsAddDialogOpen(false)
   }
 
   const handleOpenEdit = (billId: number) => {
     const bill = bills.find((b) => b.id === billId)
     if (!bill) return
 
+    // Format nextDueDate for date input (YYYY-MM-DD format)
+    // Handle timezone issues by parsing as local date
+    let formattedDate = bill.nextDueDate
+    if (bill.nextDueDate) {
+      try {
+        // If it's already in YYYY-MM-DD format, use it directly
+        if (bill.nextDueDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          formattedDate = bill.nextDueDate
+        } else {
+          // Otherwise, parse and format as YYYY-MM-DD in local timezone
+          const date = new Date(bill.nextDueDate)
+          if (!isNaN(date.getTime())) {
+            const year = date.getFullYear()
+            const month = String(date.getMonth() + 1).padStart(2, "0")
+            const day = String(date.getDate()).padStart(2, "0")
+            formattedDate = `${year}-${month}-${day}`
+          }
+        }
+      } catch {
+        // If parsing fails, use original value
+        formattedDate = bill.nextDueDate
+      }
+    }
+
     setEditBill({
       name: bill.name,
       amount: (bill.amount / 100).toFixed(2),
       frequency: bill.frequency,
-      nextDueDate: bill.nextDueDate,
+      nextDueDate: formattedDate,
       category: bill.category,
       icon: bill.icon || "📦",
       color: bill.color || CATEGORY_COLORS[0],
@@ -162,8 +243,8 @@ export function RecurringBills({ bills: initialBills, setBills: setInitialBills 
     setIsEditDialogOpen(true)
   }
 
-  const handleSaveEdit = () => {
-    if (!selectedBillId || !editBill.name.trim() || !editBill.amount || !editBill.nextDueDate) return
+  const handleSaveEdit = async () => {
+    if (!selectedBillId || !editBill.name.trim() || !editBill.amount || !editBill.nextDueDate || !user) return
 
     const amount = parseFloat(editBill.amount)
     if (isNaN(amount) || amount <= 0) return
@@ -174,6 +255,13 @@ export function RecurringBills({ bills: initialBills, setBills: setInitialBills 
         ? parseInt(editBill.budgetCategoryId)
         : editBill.budgetCategoryId
 
+    const originalBill = bills.find((b) => b.id === selectedBillId)
+    if (!originalBill) {
+      toast.error("Original bill not found for rollback.")
+      return
+    }
+
+    // Optimistic update
     updateBills(
       bills.map((bill) =>
         bill.id === selectedBillId
@@ -194,8 +282,64 @@ export function RecurringBills({ bills: initialBills, setBills: setInitialBills 
       )
     )
 
-    setSelectedBillId(null)
-    setIsEditDialogOpen(false)
+    try {
+      setIsSavingEdit(true)
+      const effectiveUserId = isViewingAsUser ? 2 : user.id
+      const headers = {
+        "Content-Type": "application/json",
+        "x-user-id": String(effectiveUserId),
+        "x-user-role": user.role || "user",
+      }
+
+      const response = await fetch(`/api/recurring-bills/${selectedBillId}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({
+          name: editBill.name.trim(),
+          amount: Math.round(amount * 100),
+          frequency: editBill.frequency,
+          nextDueDate: editBill.nextDueDate,
+          category: editBill.category,
+          icon: editBill.icon,
+          color: editBill.color,
+          isActive: editBill.isActive,
+          notes: editBill.notes || undefined,
+          budgetCategoryId: budgetCategoryId,
+        }),
+      })
+
+      if (response.ok) {
+        const updatedBill = await response.json()
+        updateBills(
+          bills.map((bill) =>
+            bill.id === selectedBillId ? updatedBill : bill
+          )
+        )
+        toast.success("Recurring bill updated successfully")
+        setSelectedBillId(null)
+        setIsEditDialogOpen(false)
+      } else {
+        // Revert on error
+        updateBills(
+          bills.map((bill) =>
+            bill.id === selectedBillId ? originalBill : bill
+          )
+        )
+        const error = await response.json()
+        toast.error(error.error || "Failed to update recurring bill")
+      }
+    } catch (error) {
+      console.error("Error updating recurring bill:", error)
+      toast.error("Failed to update recurring bill due to network error.")
+      // Revert on network error
+      updateBills(
+        bills.map((bill) =>
+          bill.id === selectedBillId ? originalBill : bill
+        )
+      )
+    } finally {
+      setIsSavingEdit(false)
+    }
   }
 
   const handleOpenDelete = (billId: number) => {
@@ -211,7 +355,8 @@ export function RecurringBills({ bills: initialBills, setBills: setInitialBills 
   }
 
   const getDaysUntilDue = (dueDate: string) => {
-    const today = new Date()
+    // Use Toronto timezone for current date calculations
+    const today = getCurrentDateInToronto()
     today.setHours(0, 0, 0, 0)
     const due = new Date(dueDate)
     due.setHours(0, 0, 0, 0)
@@ -221,6 +366,14 @@ export function RecurringBills({ bills: initialBills, setBills: setInitialBills 
   }
 
   const formatNextDueDate = (dateString: string) => {
+    // Parse date string as local date to avoid timezone issues
+    // If it's in YYYY-MM-DD format, parse it as local date
+    if (dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      const [year, month, day] = dateString.split("-").map(Number)
+      const date = new Date(year, month - 1, day) // month is 0-indexed
+      return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    }
+    // Otherwise, parse as normal
     const date = new Date(dateString)
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
   }
@@ -296,41 +449,45 @@ export function RecurringBills({ bills: initialBills, setBills: setInitialBills 
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="bill-category">Category</Label>
-                  <Input
-                    id="bill-category"
-                    placeholder="e.g., Subscription, Rent"
-                    value={newBill.category}
-                    onChange={(e) => setNewBill({ ...newBill, category: e.target.value })}
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="bill-category">Transaction Category</Label>
+                <Input
+                  id="bill-category"
+                  placeholder="e.g., Subscription, Rent, Utilities"
+                  value={newBill.category}
+                  onChange={(e) => setNewBill({ ...newBill, category: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  This category will be used when creating transactions from this bill
+                </p>
+              </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="bill-budget">Budget Category</Label>
-                  <Select
-                    value={newBill.budgetCategoryId === null ? "none" : String(newBill.budgetCategoryId)}
-                    onValueChange={(value) =>
-                      setNewBill({ ...newBill, budgetCategoryId: value === "none" ? null : value })
-                    }
-                  >
-                    <SelectTrigger id="bill-budget">
-                      <SelectValue placeholder="Select budget category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">No Budget</SelectItem>
-                      {mockBudgetCategories.map((category) => (
-                        <SelectItem key={category.id} value={String(category.id)}>
-                          <div className="flex items-center gap-2">
-                            <span>{category.icon}</span>
-                            <span>{category.name}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="bill-budget">Budget Category (Optional)</Label>
+                <Select
+                  value={newBill.budgetCategoryId === null ? "none" : String(newBill.budgetCategoryId)}
+                  onValueChange={(value) =>
+                    setNewBill({ ...newBill, budgetCategoryId: value === "none" ? null : value })
+                  }
+                >
+                  <SelectTrigger id="bill-budget">
+                    <SelectValue placeholder="Select budget category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Budget Category</SelectItem>
+                    {budgetCategories.map((category) => (
+                      <SelectItem key={category.id} value={String(category.id)}>
+                        <div className="flex items-center gap-2">
+                          <span>{category.icon}</span>
+                          <span>{category.name}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Link this bill to a budget category for spending tracking
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -401,9 +558,9 @@ export function RecurringBills({ bills: initialBills, setBills: setInitialBills 
               </Button>
               <Button
                 onClick={handleAddBill}
-                disabled={!newBill.name.trim() || !newBill.amount || !newBill.nextDueDate || parseFloat(newBill.amount) <= 0}
+                disabled={!newBill.name.trim() || !newBill.amount || !newBill.nextDueDate || parseFloat(newBill.amount) <= 0 || isSaving}
               >
-                Add Bill
+                {isSaving ? "Adding..." : "Add Bill"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -451,7 +608,7 @@ export function RecurringBills({ bills: initialBills, setBills: setInitialBills 
                       <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <DollarSign className="h-3 w-3" />
-                          C${(bill.amount / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {formatCurrencyFromCents(bill.amount)}
                         </span>
                         <span>•</span>
                         <span className="flex items-center gap-1">
@@ -585,41 +742,45 @@ export function RecurringBills({ bills: initialBills, setBills: setInitialBills 
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-bill-category">Category</Label>
-                <Input
-                  id="edit-bill-category"
-                  placeholder="e.g., Subscription, Rent"
-                  value={editBill.category}
-                  onChange={(e) => setEditBill({ ...editBill, category: e.target.value })}
-                />
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-bill-category">Transaction Category</Label>
+              <Input
+                id="edit-bill-category"
+                placeholder="e.g., Subscription, Rent, Utilities"
+                value={editBill.category}
+                onChange={(e) => setEditBill({ ...editBill, category: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                This category will be used when creating transactions from this bill
+              </p>
+            </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="edit-bill-budget">Budget Category</Label>
-                <Select
-                  value={editBill.budgetCategoryId === null ? "none" : String(editBill.budgetCategoryId)}
-                  onValueChange={(value) =>
-                    setEditBill({ ...editBill, budgetCategoryId: value === "none" ? null : value })
-                  }
-                >
-                  <SelectTrigger id="edit-bill-budget">
-                    <SelectValue placeholder="Select budget category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No Budget</SelectItem>
-                    {mockBudgetCategories.map((category) => (
-                      <SelectItem key={category.id} value={String(category.id)}>
-                        <div className="flex items-center gap-2">
-                          <span>{category.icon}</span>
-                          <span>{category.name}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-bill-budget">Budget Category (Optional)</Label>
+              <Select
+                value={editBill.budgetCategoryId === null ? "none" : String(editBill.budgetCategoryId)}
+                onValueChange={(value) =>
+                  setEditBill({ ...editBill, budgetCategoryId: value === "none" ? null : value })
+                }
+              >
+                <SelectTrigger id="edit-bill-budget">
+                  <SelectValue placeholder="Select budget category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No Budget Category</SelectItem>
+                  {budgetCategories.map((category) => (
+                    <SelectItem key={category.id} value={String(category.id)}>
+                      <div className="flex items-center gap-2">
+                        <span>{category.icon}</span>
+                        <span>{category.name}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Link this bill to a budget category for spending tracking
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -690,9 +851,9 @@ export function RecurringBills({ bills: initialBills, setBills: setInitialBills 
             </Button>
             <Button
               onClick={handleSaveEdit}
-              disabled={!editBill.name.trim() || !editBill.amount || !editBill.nextDueDate || parseFloat(editBill.amount) <= 0}
+              disabled={!editBill.name.trim() || !editBill.amount || !editBill.nextDueDate || parseFloat(editBill.amount) <= 0 || isSavingEdit}
             >
-              Save Changes
+              {isSavingEdit ? "Saving..." : "Save Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>

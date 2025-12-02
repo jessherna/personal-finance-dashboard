@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 
 interface UsePaginationProps<T> {
   items: T[]
@@ -9,6 +9,11 @@ interface UsePaginationProps<T> {
 
 export function usePagination<T>({ items, itemsPerPage = 10 }: UsePaginationProps<T>) {
   const [currentPage, setCurrentPage] = useState(1)
+
+  // Reset to page 1 when itemsPerPage changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [itemsPerPage])
 
   const totalPages = Math.ceil(items.length / itemsPerPage)
 

@@ -21,7 +21,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Plus, MoreVertical, Edit, Trash2, DollarSign, Laptop, ShieldAlert, Plane, Home, PiggyBank, Target, Car, Heart, GraduationCap, Gamepad2, ShoppingBag } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
+import { formatCurrencyFromCents } from "@/lib/utils/format"
 import { useSavings } from "@/hooks/use-savings"
+import { toast } from "sonner"
 import type { SavingsGoal } from "@/lib/types"
 
 // Available icons for savings goals
@@ -96,6 +98,7 @@ export function SavingsGoalsList() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [selectedGoalId, setSelectedGoalId] = useState<number | null>(null)
   const [fundAmount, setFundAmount] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
   const [newGoal, setNewGoal] = useState({
     name: "",
     target: "",
@@ -115,36 +118,67 @@ export function SavingsGoalsList() {
 
   const { goals: goalsWithProgress } = useSavings({ goals })
 
-  const handleAddGoal = () => {
-    if (!newGoal.name.trim() || !newGoal.target || !newGoal.dueDateMonth) return
+  const handleAddGoal = async () => {
+    if (!newGoal.name.trim() || !newGoal.target || !newGoal.dueDateMonth || !user) return
 
-    const selectedIcon = GOAL_ICONS.find((item) => item.value === newGoal.icon)?.icon || PiggyBank
-    
-    // Format the date from YYYY-MM to "Nov 2025" format
-    const date = new Date(newGoal.dueDateMonth + "-01")
-    const formattedDate = date.toLocaleDateString("en-US", { month: "short", year: "numeric" })
+    try {
+      setIsSaving(true)
+      const effectiveUserId = isViewingAsUser ? 2 : user.id
 
-    const goal: SavingsGoal = {
-      id: Date.now(), // Simple ID generation
-      name: newGoal.name.trim(),
-      icon: selectedIcon,
-      current: 0,
-      target: Number.parseFloat(newGoal.target),
-      dueDate: formattedDate,
-      color: newGoal.color,
-      monthlyContribution: newGoal.monthlyContribution ? Number.parseFloat(newGoal.monthlyContribution) : undefined,
+      // Format the date from YYYY-MM to "Nov 2025" format
+      const date = new Date(newGoal.dueDateMonth + "-01")
+      const formattedDate = date.toLocaleDateString("en-US", { month: "short", year: "numeric" })
+
+      const response = await fetch("/api/savings-goals", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": String(effectiveUserId),
+          "x-user-role": user.role || "user",
+        },
+        body: JSON.stringify({
+          name: newGoal.name.trim(),
+          icon: newGoal.icon, // Store as string (component name)
+          target: Number.parseFloat(newGoal.target), // Will be converted to cents in API
+          dueDate: formattedDate,
+          color: newGoal.color,
+          monthlyContribution: newGoal.monthlyContribution ? Number.parseFloat(newGoal.monthlyContribution) : 0,
+          current: 0,
+        }),
+      })
+
+      if (response.ok) {
+        const goal = await response.json()
+        // Convert icon string back to component for display
+        const selectedIcon = GOAL_ICONS.find((item) => item.value === goal.icon)?.icon || PiggyBank
+        const goalWithIcon: SavingsGoal = {
+          ...goal,
+          icon: selectedIcon,
+          target: goal.target / 100, // Convert from cents to dollars for display
+          current: goal.current / 100,
+          monthlyContribution: goal.monthlyContribution ? goal.monthlyContribution / 100 : undefined,
+        }
+        setGoals((prev) => [...prev, goalWithIcon])
+        setNewGoal({
+          name: "",
+          target: "",
+          dueDateMonth: "",
+          color: GOAL_COLORS[0],
+          icon: "PiggyBank",
+          monthlyContribution: "",
+        })
+        setIsDialogOpen(false)
+        toast.success("Savings goal created successfully")
+      } else {
+        const error = await response.json()
+        toast.error(error.error || "Failed to create savings goal")
+      }
+    } catch (error) {
+      console.error("Error creating savings goal:", error)
+      toast.error("Failed to create savings goal")
+    } finally {
+      setIsSaving(false)
     }
-
-    setGoals((prev) => [...prev, goal])
-    setNewGoal({
-      name: "",
-      target: "",
-      dueDateMonth: "",
-      color: GOAL_COLORS[0],
-      icon: "PiggyBank",
-      monthlyContribution: "",
-    })
-    setIsDialogOpen(false)
   }
 
   const handleOpenAddFunds = (goalId: number) => {
@@ -355,8 +389,8 @@ export function SavingsGoalsList() {
               <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleAddGoal} disabled={!newGoal.name.trim() || !newGoal.target || !newGoal.dueDateMonth}>
-                Add Goal
+              <Button onClick={handleAddGoal} disabled={!newGoal.name.trim() || !newGoal.target || !newGoal.dueDateMonth || isSaving}>
+                {isSaving ? "Adding..." : "Add Goal"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -394,12 +428,12 @@ export function SavingsGoalsList() {
               return (
                 <div className="rounded-lg bg-muted/50 p-3 space-y-1">
                   <div className="text-xs text-muted-foreground">Current Balance</div>
-                  <div className="font-semibold text-foreground">C${goal.current.toLocaleString()}</div>
+                  <div className="font-semibold text-foreground">{formatCurrencyFromCents(goal.current)}</div>
                   {fundAmount && !isNaN(parseFloat(fundAmount)) && parseFloat(fundAmount) > 0 && (
                     <>
                       <div className="text-xs text-muted-foreground mt-2">New Balance</div>
                       <div className="font-semibold text-foreground">
-                        C${(goal.current + parseFloat(fundAmount)).toLocaleString()}
+                        {formatCurrencyFromCents(goal.current + parseFloat(fundAmount) * 100)}
                       </div>
                     </>
                   )}
@@ -611,20 +645,20 @@ export function SavingsGoalsList() {
                   style={{ "--progress-color": goal.color } as any}
                 />
                 <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium text-foreground">C${goal.current.toLocaleString()}</span>
-                  <span className="text-muted-foreground">C${goal.target.toLocaleString()}</span>
+                  <span className="font-medium text-foreground">{formatCurrencyFromCents(goal.current)}</span>
+                  <span className="text-muted-foreground">{formatCurrencyFromCents(goal.target)}</span>
                 </div>
               </div>
 
               <div className="flex items-center gap-4 rounded-lg bg-muted/50 p-3">
                 <div className="flex-1">
                   <div className="text-xs text-muted-foreground">Remaining</div>
-                  <div className="font-semibold text-foreground">C${goal.progress.remaining.toLocaleString()}</div>
+                  <div className="font-semibold text-foreground">{formatCurrencyFromCents(goal.progress.remaining)}</div>
                 </div>
                 <div className="h-8 w-px bg-border" />
                 <div className="flex-1">
                   <div className="text-xs text-muted-foreground">Monthly</div>
-                  <div className="font-semibold text-foreground">C${goal.monthlyContribution?.toLocaleString()}</div>
+                  <div className="font-semibold text-foreground">{formatCurrencyFromCents(goal.monthlyContribution || 0)}</div>
                 </div>
                 <Button 
                   size="sm" 

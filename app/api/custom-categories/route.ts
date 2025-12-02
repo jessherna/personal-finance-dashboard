@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
 import { getDBConnection } from "@/lib/db/mongodb"
-import { createBudgetCategoryModel } from "@/lib/models/Budget"
+import { createCustomCategoryModel } from "@/lib/models/CustomCategory"
 import { verifyUserFromRequest } from "@/lib/utils/auth-helper"
 
-// GET /api/budget-categories - Get all budget categories for a user
+// GET /api/custom-categories - Get all custom categories for a user
 export async function GET(request: Request) {
   try {
     // Verify user exists in database
@@ -15,27 +15,24 @@ export async function GET(request: Request) {
     const { userId, userRole } = verified
 
     const connection = await getDBConnection(userRole || undefined)
-    const BudgetCategoryModel = createBudgetCategoryModel(connection)
+    const CustomCategoryModel = createCustomCategoryModel(connection)
 
-    const categories = await BudgetCategoryModel.find({ userId }).lean().exec()
+    const categories = await CustomCategoryModel.find({ userId }).lean().exec()
 
-    const formattedCategories = categories.map((cat: any) => ({
-      id: cat.id || cat._id,
-      name: cat.name,
-      budget: cat.budget,
-      spent: cat.spent,
-      icon: cat.icon,
-      color: cat.color,
-    }))
+    // Convert to Record<string, string> format (name -> color)
+    const categoriesMap: Record<string, string> = {}
+    categories.forEach((cat: any) => {
+      categoriesMap[cat.name] = cat.color
+    })
 
-    return NextResponse.json(formattedCategories)
+    return NextResponse.json(categoriesMap)
   } catch (error) {
-    console.error("Get budget categories error:", error)
+    console.error("Get custom categories error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
-// POST /api/budget-categories - Create a new budget category
+// POST /api/custom-categories - Create a new custom category
 export async function POST(request: Request) {
   try {
     // Verify user exists in database
@@ -47,27 +44,30 @@ export async function POST(request: Request) {
     const { userId, userRole } = verified
 
     const body = await request.json()
-    const { name, budget, spent, icon, color } = body
+    const { name, color } = body
 
-    if (!name || budget === undefined) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    if (!name || !color) {
+      return NextResponse.json({ error: "Missing required fields: name and color" }, { status: 400 })
     }
 
     const connection = await getDBConnection(userRole || undefined)
-    const BudgetCategoryModel = createBudgetCategoryModel(connection)
+    const CustomCategoryModel = createCustomCategoryModel(connection)
+
+    // Check if category already exists for this user
+    const existingCategory = await CustomCategoryModel.findOne({ userId, name: name.trim() }).lean().exec()
+    if (existingCategory) {
+      return NextResponse.json({ error: "Category already exists" }, { status: 409 })
+    }
 
     // Get the highest ID to generate a new one
-    const existingCategories = await BudgetCategoryModel.find({ userId }).sort({ id: -1 }).limit(1).lean().exec()
+    const existingCategories = await CustomCategoryModel.find({ userId }).sort({ id: -1 }).limit(1).lean().exec()
     const nextId = existingCategories.length > 0 ? (existingCategories[0] as any).id + 1 : 1
 
-    const newCategory = new BudgetCategoryModel({
+    const newCategory = new CustomCategoryModel({
       id: nextId,
       userId,
       name: name.trim(),
-      budget: Math.round(budget), // Already in cents
-      spent: Math.round(spent || 0), // Already in cents
-      icon: icon || "📦",
-      color: color || "#4E79A7",
+      color: color,
     })
 
     await newCategory.save()
@@ -75,15 +75,12 @@ export async function POST(request: Request) {
     const formattedCategory = {
       id: newCategory.id,
       name: newCategory.name,
-      budget: newCategory.budget,
-      spent: newCategory.spent,
-      icon: newCategory.icon,
       color: newCategory.color,
     }
 
     return NextResponse.json(formattedCategory, { status: 201 })
   } catch (error) {
-    console.error("Create budget category error:", error)
+    console.error("Create custom category error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

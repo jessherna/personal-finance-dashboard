@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Bell, Search, X, Wallet, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,6 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
+import { formatCurrencyFromCents } from "@/lib/utils/format"
 import { UserSwitcher } from "@/components/user-switcher"
 import { NotificationDropdown } from "@/components/notification-dropdown"
 import type { Account } from "@/lib/types"
@@ -21,12 +23,20 @@ interface HeaderProps {
 
 export function Header({ title, selectedAccountId, onAccountSelect, accounts: propsAccounts }: HeaderProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false)
-  const { user, isViewingAsUser, canViewAs, effectiveUser } = useAuth()
+  const { user, isViewingAsUser, canViewAs, effectiveUser, isLoading, isAuthenticated } = useAuth()
+  const router = useRouter()
   const accounts = propsAccounts || []
   const selectedAccount = selectedAccountId ? accounts.find((a) => a.id === selectedAccountId) : null
   
   // When viewing as a user, show account selector (using mock data)
   const showAccountSelector = onAccountSelect && (isViewingAsUser || user?.role === "user")
+
+  // Redirect to login if not authenticated (after loading)
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.push("/login")
+    }
+  }, [isLoading, isAuthenticated, router])
 
   // Get user initials for avatar fallback
   const getUserInitials = (name: string) => {
@@ -38,9 +48,14 @@ export function Header({ title, selectedAccountId, onAccountSelect, accounts: pr
       .slice(0, 2)
   }
 
+  // Don't render if not authenticated
+  if (!isLoading && !user) {
+    return null
+  }
+
   // Show actual logged-in user (never show real user data when viewing as)
-  const userName = user?.name || "Guest"
-  const userInitials = user ? getUserInitials(user.name) : "GU"
+  const userName = user?.name || ""
+  const userInitials = user ? getUserInitials(user.name) : ""
   const userAvatar = user?.avatar || "/placeholder-user.jpg"
 
   return (
@@ -90,7 +105,12 @@ export function Header({ title, selectedAccountId, onAccountSelect, accounts: pr
                       <span>{account.icon || "💳"}</span>
                       <span className="truncate">{account.name}</span>
                       <span className="ml-auto text-xs text-muted-foreground">
-                        C${(account.balance / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {account.type === "credit_card" 
+                          ? formatCurrencyFromCents(
+                              Math.max(0, (account.limit || 0) - Math.abs(account.balance || 0)),
+                              account.currency || "C$"
+                            )
+                          : formatCurrencyFromCents(account.balance, account.currency || "C$")}
                       </span>
                     </div>
                   </SelectItem>

@@ -11,6 +11,9 @@ import { Plus, TrendingUp, Edit } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
 import { useBudget } from "@/hooks/use-budget"
+import { formatCurrencyFromCents } from "@/lib/utils/format"
+import { getCurrentDateInToronto } from "@/lib/utils/date"
+import { toast } from "sonner"
 import type { BudgetCategory, Transaction } from "@/lib/types"
 
 // Common emoji icons for budget categories
@@ -48,6 +51,7 @@ export function BudgetCategories() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
   const [newCategory, setNewCategory] = useState({
     name: "",
     budget: "",
@@ -65,32 +69,149 @@ export function BudgetCategories() {
 
   const { categories: categoriesWithAnalysis } = useBudget({ categories })
 
-  const handleAddCategory = () => {
-    if (!newCategory.name.trim() || !newCategory.budget) return
+  // Fetch budget categories and transactions on mount
+  useEffect(() => {
+    const fetchCategories = async () => {
+      if (!user) {
+        setIsLoading(false)
+        return
+      }
+
+      try {
+        setIsLoading(true)
+        const effectiveUserId = isViewingAsUser ? 2 : user.id
+        const headers = {
+          "x-user-id": String(effectiveUserId),
+          "x-user-role": user.role || "user",
+        }
+
+        const [categoriesRes, transactionsRes] = await Promise.all([
+          fetch("/api/budget-categories", { headers }),
+          fetch("/api/transactions", { headers }),
+        ])
+
+        if (categoriesRes.ok) {
+          const budgetCategoriesData = await categoriesRes.json()
+          let categories = budgetCategoriesData
+
+          // If we have transactions, recalculate spent amounts for current month
+          if (transactionsRes.ok) {
+            const transactions = await transactionsRes.json()
+            // Use Toronto timezone for current date calculations (consistent with budget-overview)
+            const now = getCurrentDateInToronto()
+            const currentMonth = now.getMonth()
+            const currentYear = now.getFullYear()
+
+            // Calculate spent per budget category for current month
+            const spentByCategory = new Map<number, number>()
+            transactions
+              .filter((t: any) => {
+                // Handle different date formats
+                let txnDate: Date
+                try {
+                  if (t.date && typeof t.date === "string") {
+                    // Try parsing as ISO string first (YYYY-MM-DD)
+                    if (t.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                      txnDate = new Date(t.date + "T00:00:00")
+                    } else {
+                      txnDate = new Date(t.date)
+                    }
+                  } else {
+                    return false
+                  }
+                  
+                  if (isNaN(txnDate.getTime())) {
+                    return false
+                  }
+                  
+                  return (
+                    txnDate.getMonth() === currentMonth &&
+                    txnDate.getFullYear() === currentYear &&
+                    t.type === "expense" &&
+                    (t.status === "completed" || !t.status) &&
+                    t.budgetCategoryId
+                  )
+                } catch {
+                  return false
+                }
+              })
+              .forEach((t: any) => {
+                const current = spentByCategory.get(t.budgetCategoryId) || 0
+                spentByCategory.set(t.budgetCategoryId, current + t.amount)
+              })
+
+            // Update categories with recalculated spent amounts
+            categories = budgetCategoriesData.map((cat: any) => ({
+              ...cat,
+              spent: spentByCategory.get(cat.id) || 0,
+            }))
+          }
+
+          setCategories(categories)
+        } else {
+          setCategories([])
+        }
+      } catch (error) {
+        console.error("Error fetching budget categories:", error)
+        setCategories([])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchCategories()
+  }, [user, isViewingAsUser])
+
+  const handleAddCategory = async () => {
+    if (!newCategory.name.trim() || !newCategory.budget || !user) return
 
     const budget = parseFloat(newCategory.budget)
     const spent = parseFloat(newCategory.spent || "0")
 
     if (isNaN(budget) || budget <= 0 || isNaN(spent) || spent < 0) return
 
-    const category: BudgetCategory = {
-      id: Math.max(...categories.map((c) => c.id), 0) + 1,
-      name: newCategory.name.trim(),
-      budget: Math.round(budget * 100), // Convert to cents
-      spent: Math.round(spent * 100), // Convert to cents
-      icon: newCategory.icon,
-      color: newCategory.color,
-    }
+    try {
+      setIsSaving(true)
+      const effectiveUserId = isViewingAsUser ? 2 : user.id
 
-    setCategories((prev) => [...prev, category])
-    setNewCategory({
-      name: "",
-      budget: "",
-      spent: "0",
-      icon: "📦",
-      color: CATEGORY_COLORS[0],
-    })
-    setIsAddDialogOpen(false)
+      const response = await fetch("/api/budget-categories", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": String(effectiveUserId),
+          "x-user-role": user.role || "user",
+        },
+        body: JSON.stringify({
+          name: newCategory.name.trim(),
+          budget: Math.round(budget * 100), // Convert to cents
+          spent: Math.round(spent * 100), // Convert to cents
+          icon: newCategory.icon,
+          color: newCategory.color,
+        }),
+      })
+
+      if (response.ok) {
+        const category = await response.json()
+        setCategories((prev) => [...prev, category])
+        setNewCategory({
+          name: "",
+          budget: "",
+          spent: "0",
+          icon: "📦",
+          color: CATEGORY_COLORS[0],
+        })
+        setIsAddDialogOpen(false)
+        toast.success("Budget category created successfully")
+      } else {
+        const error = await response.json()
+        toast.error(error.error || "Failed to create budget category")
+      }
+    } catch (error) {
+      console.error("Error creating budget category:", error)
+      toast.error("Failed to create budget category")
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleOpenEdit = (categoryId: number) => {
@@ -108,31 +229,54 @@ export function BudgetCategories() {
     setIsEditDialogOpen(true)
   }
 
-  const handleSaveEdit = () => {
-    if (!selectedCategoryId || !editCategory.name.trim() || !editCategory.budget) return
+  const handleSaveEdit = async () => {
+    if (!selectedCategoryId || !editCategory.name.trim() || !editCategory.budget || !user) return
 
     const budget = parseFloat(editCategory.budget)
     const spent = parseFloat(editCategory.spent || "0")
 
     if (isNaN(budget) || budget <= 0 || isNaN(spent) || spent < 0) return
 
-    setCategories((prev) =>
-      prev.map((category) =>
-        category.id === selectedCategoryId
-          ? {
-              ...category,
-              name: editCategory.name.trim(),
-              budget: Math.round(budget * 100), // Convert to cents
-              spent: Math.round(spent * 100), // Convert to cents
-              icon: editCategory.icon,
-              color: editCategory.color,
-            }
-          : category
-      )
-    )
+    try {
+      setIsSaving(true)
+      const effectiveUserId = isViewingAsUser ? 2 : user.id
 
-    setSelectedCategoryId(null)
-    setIsEditDialogOpen(false)
+      const response = await fetch(`/api/budget-categories/${selectedCategoryId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": String(effectiveUserId),
+          "x-user-role": user.role || "user",
+        },
+        body: JSON.stringify({
+          name: editCategory.name.trim(),
+          budget: Math.round(budget * 100), // Convert to cents
+          spent: Math.round(spent * 100), // Convert to cents
+          icon: editCategory.icon,
+          color: editCategory.color,
+        }),
+      })
+
+      if (response.ok) {
+        const updatedCategory = await response.json()
+        setCategories((prev) =>
+          prev.map((category) =>
+            category.id === selectedCategoryId ? updatedCategory : category
+          )
+        )
+        setSelectedCategoryId(null)
+        setIsEditDialogOpen(false)
+        toast.success("Budget category updated successfully")
+      } else {
+        const error = await response.json()
+        toast.error(error.error || "Failed to update budget category")
+      }
+    } catch (error) {
+      console.error("Error updating budget category:", error)
+      toast.error("Failed to update budget category")
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -283,9 +427,9 @@ export function BudgetCategories() {
               </Button>
               <Button
                 onClick={handleAddCategory}
-                disabled={!newCategory.name.trim() || !newCategory.budget || parseFloat(newCategory.budget) <= 0}
+                disabled={!newCategory.name.trim() || !newCategory.budget || parseFloat(newCategory.budget) <= 0 || isSaving}
               >
-                Add Category
+                {isSaving ? "Adding..." : "Add Category"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -429,9 +573,9 @@ export function BudgetCategories() {
             </Button>
             <Button
               onClick={handleSaveEdit}
-              disabled={!editCategory.name.trim() || !editCategory.budget || parseFloat(editCategory.budget) <= 0}
+              disabled={!editCategory.name.trim() || !editCategory.budget || parseFloat(editCategory.budget) <= 0 || isSaving}
             >
-              Save Changes
+              {isSaving ? "Saving..." : "Save Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -457,7 +601,7 @@ export function BudgetCategories() {
                   <div className="min-w-0 flex-1">
                     <div className="font-medium text-foreground truncate">{category.name}</div>
                     <div className="text-sm text-muted-foreground">
-                      C${category.spent.toLocaleString()} of C${category.budget.toLocaleString()}
+                      {formatCurrencyFromCents(category.spent)} of {formatCurrencyFromCents(category.budget)}
                     </div>
                   </div>
                 </div>
@@ -489,9 +633,9 @@ export function BudgetCategories() {
                     {category.percentage}% used
                   </span>
                   {category.isOverBudget && (
-                    <span className="flex items-center gap-1 text-destructive" aria-label={`Budget exceeded by C$${category.exceeded.toLocaleString()}`}>
+                    <span className="flex items-center gap-1 text-destructive" aria-label={`Budget exceeded by ${formatCurrencyFromCents(category.exceeded)}`}>
                       <TrendingUp className="h-3 w-3" aria-hidden="true" />
-                      Exceeded by C${category.exceeded.toLocaleString()}
+                      Exceeded by {formatCurrencyFromCents(category.exceeded)}
                     </span>
                   )}
                 </div>

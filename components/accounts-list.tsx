@@ -20,6 +20,9 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus, Edit, Trash2, Wallet, CreditCard, TrendingUp, Building2 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useAuth } from "@/contexts/auth-context"
+import { formatCurrencyFromCents } from "@/lib/utils/format"
+import { toast } from "sonner"
 import type { Account, AccountType } from "@/lib/types"
 
 const ACCOUNT_TYPES: { value: AccountType; label: string; icon: typeof Wallet }[] = [
@@ -66,8 +69,10 @@ export function AccountsList({
   selectedAccountId,
   onAccountSelect,
 }: AccountsListProps) {
+  const { user, isViewingAsUser } = useAuth()
   const [accounts, setAccounts] = useState<Account[]>(initialAccounts || [])
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [selectedAccountIdLocal, setSelectedAccountIdLocal] = useState<number | null>(selectedAccountId || null)
@@ -75,6 +80,7 @@ export function AccountsList({
     name: "",
     type: "checking" as AccountType,
     balance: "",
+    limit: "",
     currency: "C$",
     bankName: "",
     accountNumber: "",
@@ -87,6 +93,7 @@ export function AccountsList({
     name: "",
     type: "checking" as AccountType,
     balance: "",
+    limit: "",
     currency: "C$",
     bankName: "",
     accountNumber: "",
@@ -104,40 +111,80 @@ export function AccountsList({
     }
   }
 
-  const handleAddAccount = () => {
-    if (!newAccount.name.trim() || !newAccount.balance) return
+  const handleAddAccount = async () => {
+    if (!newAccount.name.trim() || !user) return
 
-    const balance = parseFloat(newAccount.balance)
-    if (isNaN(balance)) return
-
-    const account: Account = {
-      id: Math.max(...accounts.map((a) => a.id), 0) + 1,
-      name: newAccount.name.trim(),
-      type: newAccount.type,
-      balance: Math.round(balance * 100), // Convert to cents
-      currency: newAccount.currency,
-      bankName: newAccount.bankName || undefined,
-      accountNumber: newAccount.accountNumber || undefined,
-      icon: newAccount.icon,
-      color: newAccount.color,
-      isActive: newAccount.isActive,
-      notes: newAccount.notes || undefined,
+    // For credit cards, require limit; for others, require balance
+    if (newAccount.type === "credit_card") {
+      if (!newAccount.limit) return
+      const limit = parseFloat(newAccount.limit)
+      if (isNaN(limit)) return
+    } else {
+      if (!newAccount.balance) return
+      const balance = parseFloat(newAccount.balance)
+      if (isNaN(balance)) return
     }
 
-    updateAccounts([...accounts, account])
-    setNewAccount({
-      name: "",
-      type: "checking",
-      balance: "",
-      currency: "C$",
-      bankName: "",
-      accountNumber: "",
-      icon: "💳",
-      color: ACCOUNT_COLORS[0],
-      isActive: true,
-      notes: "",
-    })
-    setIsAddDialogOpen(false)
+    try {
+      setIsSaving(true)
+      const effectiveUserId = isViewingAsUser ? 2 : user.id
+
+      const requestBody: any = {
+        name: newAccount.name.trim(),
+        type: newAccount.type,
+        currency: newAccount.currency,
+        bankName: newAccount.bankName || undefined,
+        accountNumber: newAccount.accountNumber || undefined,
+        icon: newAccount.icon,
+        color: newAccount.color,
+        isActive: newAccount.isActive,
+        notes: newAccount.notes || undefined,
+      }
+
+      if (newAccount.type === "credit_card") {
+        requestBody.limit = Math.round(parseFloat(newAccount.limit) * 100) // Convert to cents
+      } else {
+        requestBody.balance = Math.round(parseFloat(newAccount.balance) * 100) // Convert to cents
+      }
+
+      const response = await fetch("/api/accounts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": String(effectiveUserId),
+          "x-user-role": user.role || "user",
+        },
+        body: JSON.stringify(requestBody),
+      })
+
+      if (response.ok) {
+        const account = await response.json()
+        updateAccounts([...accounts, account])
+        setNewAccount({
+          name: "",
+          type: "checking",
+          balance: "",
+          limit: "",
+          currency: "C$",
+          bankName: "",
+          accountNumber: "",
+          icon: "💳",
+          color: ACCOUNT_COLORS[0],
+          isActive: true,
+          notes: "",
+        })
+        setIsAddDialogOpen(false)
+        toast.success("Account created successfully")
+      } else {
+        const error = await response.json()
+        toast.error(error.error || "Failed to create account")
+      }
+    } catch (error) {
+      console.error("Error creating account:", error)
+      toast.error("Failed to create account")
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleOpenEdit = (accountId: number) => {
@@ -147,7 +194,8 @@ export function AccountsList({
     setEditAccount({
       name: account.name,
       type: account.type,
-      balance: (account.balance / 100).toFixed(2),
+      balance: account.type === "credit_card" ? "" : (account.balance / 100).toFixed(2),
+      limit: account.type === "credit_card" && account.limit ? (account.limit / 100).toFixed(2) : "",
       currency: account.currency,
       bankName: account.bankName || "",
       accountNumber: account.accountNumber || "",
@@ -160,34 +208,72 @@ export function AccountsList({
     setIsEditDialogOpen(true)
   }
 
-  const handleSaveEdit = () => {
-    if (!selectedAccountIdLocal || !editAccount.name.trim() || !editAccount.balance) return
+  const handleSaveEdit = async () => {
+    if (!selectedAccountIdLocal || !editAccount.name.trim() || !user) return
 
-    const balance = parseFloat(editAccount.balance)
-    if (isNaN(balance)) return
+    // For credit cards, require limit; for others, require balance
+    if (editAccount.type === "credit_card") {
+      if (!editAccount.limit) return
+      const limit = parseFloat(editAccount.limit)
+      if (isNaN(limit)) return
+    } else {
+      if (!editAccount.balance) return
+      const balance = parseFloat(editAccount.balance)
+      if (isNaN(balance)) return
+    }
 
-    updateAccounts(
-      accounts.map((account) =>
-        account.id === selectedAccountIdLocal
-          ? {
-              ...account,
-              name: editAccount.name.trim(),
-              type: editAccount.type,
-              balance: Math.round(balance * 100),
-              currency: editAccount.currency,
-              bankName: editAccount.bankName || undefined,
-              accountNumber: editAccount.accountNumber || undefined,
-              icon: editAccount.icon,
-              color: editAccount.color,
-              isActive: editAccount.isActive,
-              notes: editAccount.notes || undefined,
-            }
-          : account
-      )
-    )
+    try {
+      setIsSaving(true)
+      const effectiveUserId = isViewingAsUser ? 2 : user.id
 
-    setSelectedAccountIdLocal(null)
-    setIsEditDialogOpen(false)
+      const requestBody: any = {
+        name: editAccount.name.trim(),
+        type: editAccount.type,
+        currency: editAccount.currency,
+        bankName: editAccount.bankName || undefined,
+        accountNumber: editAccount.accountNumber || undefined,
+        icon: editAccount.icon,
+        color: editAccount.color,
+        isActive: editAccount.isActive,
+        notes: editAccount.notes || undefined,
+      }
+
+      if (editAccount.type === "credit_card") {
+        requestBody.limit = Math.round(parseFloat(editAccount.limit) * 100) // Convert to cents
+      } else {
+        requestBody.balance = Math.round(parseFloat(editAccount.balance) * 100) // Convert to cents
+      }
+
+      const response = await fetch(`/api/accounts/${selectedAccountIdLocal}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": String(effectiveUserId),
+          "x-user-role": user.role || "user",
+        },
+        body: JSON.stringify(requestBody),
+      })
+
+      if (response.ok) {
+        const updatedAccount = await response.json()
+        updateAccounts(
+          accounts.map((account) =>
+            account.id === selectedAccountIdLocal ? updatedAccount : account
+          )
+        )
+        setSelectedAccountIdLocal(null)
+        setIsEditDialogOpen(false)
+        toast.success("Account updated successfully")
+      } else {
+        const error = await response.json()
+        toast.error(error.error || "Failed to update account")
+      }
+    } catch (error) {
+      console.error("Error updating account:", error)
+      toast.error("Failed to update account")
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleOpenDelete = (accountId: number) => {
@@ -195,14 +281,39 @@ export function AccountsList({
     setIsDeleteDialogOpen(true)
   }
 
-  const handleDeleteAccount = () => {
-    if (!selectedAccountIdLocal) return
-    updateAccounts(accounts.filter((account) => account.id !== selectedAccountIdLocal))
-    if (onAccountSelect && selectedAccountId === selectedAccountIdLocal) {
-      onAccountSelect(null)
+  const handleDeleteAccount = async () => {
+    if (!selectedAccountIdLocal || !user) return
+
+    try {
+      setIsSaving(true)
+      const effectiveUserId = isViewingAsUser ? 2 : user.id
+
+      const response = await fetch(`/api/accounts/${selectedAccountIdLocal}`, {
+        method: "DELETE",
+        headers: {
+          "x-user-id": String(effectiveUserId),
+          "x-user-role": user.role || "user",
+        },
+      })
+
+      if (response.ok) {
+        updateAccounts(accounts.filter((account) => account.id !== selectedAccountIdLocal))
+        if (onAccountSelect && selectedAccountId === selectedAccountIdLocal) {
+          onAccountSelect(null)
+        }
+        setSelectedAccountIdLocal(null)
+        setIsDeleteDialogOpen(false)
+        toast.success("Account deleted successfully")
+      } else {
+        const error = await response.json()
+        toast.error(error.error || "Failed to delete account")
+      }
+    } catch (error) {
+      console.error("Error deleting account:", error)
+      toast.error("Failed to delete account")
+    } finally {
+      setIsSaving(false)
     }
-    setSelectedAccountIdLocal(null)
-    setIsDeleteDialogOpen(false)
   }
 
   const handleAccountSelect = (accountId: number | null) => {
@@ -213,7 +324,7 @@ export function AccountsList({
   }
 
   const totalBalance = accounts
-    .filter((a) => a.isActive)
+    .filter((a) => a.isActive && a.type !== "credit_card") // Exclude credit cards from balance
     .reduce((sum, account) => sum + account.balance, 0)
 
   return (
@@ -274,17 +385,31 @@ export function AccountsList({
                   </Select>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="account-balance">Balance (C$)</Label>
-                  <Input
-                    id="account-balance"
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={newAccount.balance}
-                    onChange={(e) => setNewAccount({ ...newAccount, balance: e.target.value })}
-                  />
-                </div>
+                {newAccount.type === "credit_card" ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="account-limit">Credit Limit (C$)</Label>
+                    <Input
+                      id="account-limit"
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={newAccount.limit}
+                      onChange={(e) => setNewAccount({ ...newAccount, limit: e.target.value })}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="account-balance">Balance (C$)</Label>
+                    <Input
+                      id="account-balance"
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={newAccount.balance}
+                      onChange={(e) => setNewAccount({ ...newAccount, balance: e.target.value })}
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -378,9 +503,15 @@ export function AccountsList({
               </Button>
               <Button
                 onClick={handleAddAccount}
-                disabled={!newAccount.name.trim() || !newAccount.balance || isNaN(parseFloat(newAccount.balance))}
+                disabled={
+                  !newAccount.name.trim() || 
+                  (newAccount.type === "credit_card" 
+                    ? (!newAccount.limit || isNaN(parseFloat(newAccount.limit)))
+                    : (!newAccount.balance || isNaN(parseFloat(newAccount.balance))))
+                  || isSaving
+                }
               >
-                Add Account
+                {isSaving ? "Adding..." : "Add Account"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -411,7 +542,7 @@ export function AccountsList({
           <div className="space-y-3">
             {accounts.map((account) => {
               const isSelected = selectedAccountIdLocal === account.id
-              const isDebt = account.balance < 0
+              const isDebt = account.type !== "credit_card" && account.balance < 0
               const TypeIcon = ACCOUNT_TYPES.find((t) => t.value === account.type)?.icon || Wallet
 
               return (
@@ -489,21 +620,52 @@ export function AccountsList({
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between pt-2 border-t border-border">
-                    <span className="text-sm text-muted-foreground">Balance</span>
-                    <span
-                      className={cn(
-                        "text-lg font-bold",
-                        isDebt ? "text-destructive" : "text-foreground"
-                      )}
-                    >
-                      {account.currency}
-                      {(Math.abs(account.balance) / 100).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                      {isDebt && " (debt)"}
-                    </span>
+                  <div className="space-y-2 pt-2 border-t border-border">
+                    {account.type === "credit_card" ? (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Current Debt</span>
+                          <span className="text-lg font-bold text-destructive">
+                            {formatCurrencyFromCents(Math.abs(account.balance || 0), account.currency || "C$")}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Credit Limit</span>
+                          <span className="text-sm font-medium text-foreground">
+                            {formatCurrencyFromCents(account.limit || 0, account.currency || "C$")}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Available Credit</span>
+                          <span className={cn(
+                            "text-sm font-semibold",
+                            (account.limit || 0) - Math.abs(account.balance || 0) < (account.limit || 0) * 0.1
+                              ? "text-destructive" // Less than 10% available
+                              : (account.limit || 0) - Math.abs(account.balance || 0) < (account.limit || 0) * 0.3
+                              ? "text-orange-500" // Less than 30% available
+                              : "text-green-600 dark:text-green-400" // More than 30% available
+                          )}>
+                            {formatCurrencyFromCents(
+                              Math.max(0, (account.limit || 0) - Math.abs(account.balance || 0)),
+                              account.currency || "C$"
+                            )}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Balance</span>
+                        <span
+                          className={cn(
+                            "text-lg font-bold",
+                            isDebt ? "text-destructive" : "text-foreground"
+                          )}
+                        >
+                          {formatCurrencyFromCents(Math.abs(account.balance), account.currency || "C$")}
+                          {isDebt && " (debt)"}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )
@@ -556,17 +718,31 @@ export function AccountsList({
                 </Select>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="edit-account-balance">Balance (C$)</Label>
-                <Input
-                  id="edit-account-balance"
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={editAccount.balance}
-                  onChange={(e) => setEditAccount({ ...editAccount, balance: e.target.value })}
-                />
-              </div>
+              {editAccount.type === "credit_card" ? (
+                <div className="space-y-2">
+                  <Label htmlFor="edit-account-limit">Credit Limit (C$)</Label>
+                  <Input
+                    id="edit-account-limit"
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={editAccount.limit}
+                    onChange={(e) => setEditAccount({ ...editAccount, limit: e.target.value })}
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="edit-account-balance">Balance (C$)</Label>
+                  <Input
+                    id="edit-account-balance"
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={editAccount.balance}
+                    onChange={(e) => setEditAccount({ ...editAccount, balance: e.target.value })}
+                  />
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -660,9 +836,15 @@ export function AccountsList({
             </Button>
             <Button
               onClick={handleSaveEdit}
-              disabled={!editAccount.name.trim() || !editAccount.balance || isNaN(parseFloat(editAccount.balance))}
+              disabled={
+                !editAccount.name.trim() || 
+                (editAccount.type === "credit_card" 
+                  ? (!editAccount.limit || isNaN(parseFloat(editAccount.limit)))
+                  : (!editAccount.balance || isNaN(parseFloat(editAccount.balance))))
+                || isSaving
+              }
             >
-              Save Changes
+              {isSaving ? "Saving..." : "Save Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>

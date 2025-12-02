@@ -12,6 +12,8 @@ import {
 import { AlertCircle, Calendar, DollarSign, Repeat } from "lucide-react"
 import { useState, useEffect } from "react"
 import { useAuth } from "@/contexts/auth-context"
+import { getCurrentDateInToronto } from "@/lib/utils/date"
+import { formatCurrencyFromCents } from "@/lib/utils/format"
 import type { RecurringBill } from "@/lib/types"
 
 interface RecurringBillsKPIProps {
@@ -60,7 +62,8 @@ export function RecurringBillsKPI({ bills: propsBills }: RecurringBillsKPIProps)
   // Calculate KPIs
   const kpis = useMemo(() => {
     const activeBills = bills.filter((bill) => bill.isActive)
-    const today = new Date()
+    // Use Toronto timezone for current date calculations
+    const today = getCurrentDateInToronto()
     today.setHours(0, 0, 0, 0)
 
     // Calculate total monthly amount (convert all frequencies to monthly equivalent)
@@ -212,7 +215,7 @@ export function RecurringBillsKPI({ bills: propsBills }: RecurringBillsKPIProps)
               <span>Monthly Total</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              C${(kpis.totalMonthly / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {formatCurrencyFromCents(kpis.totalMonthly)}
             </div>
           </div>
 
@@ -292,7 +295,7 @@ export function RecurringBillsKPI({ bills: propsBills }: RecurringBillsKPIProps)
                         <div className="border-border/50 bg-background rounded-lg border px-3 py-2 shadow-lg">
                           <div className="font-medium text-sm mb-1">{data.category}</div>
                           <div className="text-xs text-muted-foreground">
-                            Monthly: C${((data.amount as number) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            Monthly: {formatCurrencyFromCents(data.amount as number)}
                           </div>
                         </div>
                       )

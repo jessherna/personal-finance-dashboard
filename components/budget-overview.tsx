@@ -4,6 +4,8 @@ import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { TrendingDown, TrendingUp, AlertCircle } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
+import { getCurrentDateInToronto } from "@/lib/utils/date"
+import { formatCurrencyFromCents } from "@/lib/utils/format"
 import type { Transaction, BudgetCategory } from "@/lib/types"
 
 export function BudgetOverview() {
@@ -41,7 +43,8 @@ export function BudgetOverview() {
           const transactions: Transaction[] = await transactionsRes.json()
           const budgetCategories: BudgetCategory[] = await budgetCategoriesRes.json()
 
-          const now = new Date()
+          // Use Toronto timezone for current date calculations
+          const now = getCurrentDateInToronto()
           const currentMonth = now.getMonth()
           const currentYear = now.getFullYear()
 
@@ -50,12 +53,33 @@ export function BudgetOverview() {
 
           // Calculate total spent this month from transactions
           const monthlyTransactions = transactions.filter((t) => {
-            const txnDate = new Date(t.date)
-            return (
-              txnDate.getMonth() === currentMonth &&
-              txnDate.getFullYear() === currentYear &&
-              t.type === "expense"
-            )
+            // Handle different date formats
+            let txnDate: Date
+            try {
+              // Try parsing as ISO string first (YYYY-MM-DD)
+              if (t.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                txnDate = new Date(t.date + "T00:00:00") // Add time to avoid timezone issues
+              } else {
+                // Try parsing as regular date string
+                txnDate = new Date(t.date)
+              }
+              
+              // Check if date is valid
+              if (isNaN(txnDate.getTime())) {
+                console.warn(`Invalid transaction date: ${t.date} for transaction ${t.id}`)
+                return false
+              }
+              
+              return (
+                txnDate.getMonth() === currentMonth &&
+                txnDate.getFullYear() === currentYear &&
+                t.type === "expense" &&
+                (t.status === "completed" || !t.status)
+              )
+            } catch (error) {
+              console.warn(`Error parsing transaction date: ${t.date} for transaction ${t.id}`, error)
+              return false
+            }
           })
 
           // Calculate spent per budget category
@@ -116,7 +140,7 @@ export function BudgetOverview() {
           <div className="flex items-center justify-between">
             <div className="space-y-1">
               <p className="text-sm font-medium text-muted-foreground">Total Budget</p>
-              <p className="text-2xl font-bold text-foreground">C${overview.totalBudget.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-foreground">{formatCurrencyFromCents(overview.totalBudget)}</p>
               <p className="text-sm text-muted-foreground">For this month</p>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
@@ -131,7 +155,7 @@ export function BudgetOverview() {
           <div className="flex items-center justify-between">
             <div className="space-y-1">
               <p className="text-sm font-medium text-muted-foreground">Total Spent</p>
-              <p className="text-2xl font-bold text-foreground">C${overview.totalSpent.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-foreground">{formatCurrencyFromCents(overview.totalSpent)}</p>
               <p className="text-sm text-destructive font-medium">{overview.percentageUsed}% of budget</p>
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-destructive/10">
@@ -147,7 +171,7 @@ export function BudgetOverview() {
             <div className="space-y-1">
               <p className="text-sm font-medium text-muted-foreground">Remaining</p>
               <p className={`text-2xl font-bold ${isOverBudget ? "text-destructive" : "text-success"}`}>
-                {isOverBudget ? "-" : "+"}C${Math.abs(overview.remaining).toLocaleString()}
+                {isOverBudget ? "-" : "+"}{formatCurrencyFromCents(Math.abs(overview.remaining))}
               </p>
               <p className="text-sm text-muted-foreground">{isOverBudget ? "Over budget" : "Under budget"}</p>
             </div>

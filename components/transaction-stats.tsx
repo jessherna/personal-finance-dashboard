@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { useAuth } from "@/contexts/auth-context"
+import { formatCurrencyFromCents } from "@/lib/utils/format"
 import { TrendingUp, TrendingDown, DollarSign } from "lucide-react"
 import type { Transaction } from "@/lib/types"
 
@@ -35,29 +36,45 @@ export function TransactionStats() {
         if (response.ok) {
           const transactions: Transaction[] = await response.json()
           
-          const now = new Date()
-          const currentMonth = now.getMonth()
-          const currentYear = now.getFullYear()
-          
-          const monthlyTransactions = transactions.filter((t: Transaction) => {
-            const txnDate = new Date(t.date)
-            return txnDate.getMonth() === currentMonth && txnDate.getFullYear() === currentYear
+          // Fetch accounts to check for credit cards
+          const accountsResponse = await fetch("/api/accounts", {
+            headers: {
+              "x-user-id": String(effectiveUserId),
+              "x-user-role": user.role || "user",
+            },
           })
+          const accounts = accountsResponse.ok ? await accountsResponse.json() : []
           
-          const income = monthlyTransactions
-            .filter((t) => t.type === "income")
+          // Helper function to check if transaction is effectively an expense
+          // Credit card payments (income to credit cards) should be treated as expenses
+          const isEffectiveExpense = (t: Transaction): boolean => {
+            if (t.type === "expense") return true
+            // Income transactions to credit cards are actually payments (expenses)
+            if (t.type === "income" && t.accountId) {
+              const account = accounts.find((acc: any) => acc.id === t.accountId)
+              return account?.type === "credit_card"
+            }
+            return false
+          }
+          
+          // Calculate totals from ALL transactions (not just current month)
+          // This ensures imported historical transactions are included
+          // Exclude credit card payments from income (they're expenses)
+          const income = transactions
+            .filter((t) => t.type === "income" && !isEffectiveExpense(t))
             .reduce((sum, t) => sum + (t.amount || 0), 0)
           
-          const expenses = monthlyTransactions
-            .filter((t) => t.type === "expense")
+          // Include both expenses and credit card payments
+          const expenses = transactions
+            .filter((t) => isEffectiveExpense(t))
             .reduce((sum, t) => sum + (t.amount || 0), 0)
           
           const netSavings = income - expenses
           
           setStats([
-            { label: "Total Income", value: `C$${(income / 100).toFixed(2)}`, change: "+0%", icon: TrendingUp, iconColor: "text-success", bgColor: "bg-success/10" },
-            { label: "Total Expenses", value: `C$${(expenses / 100).toFixed(2)}`, change: "+0%", icon: TrendingDown, iconColor: "text-destructive", bgColor: "bg-destructive/10" },
-            { label: "Net Savings", value: `C$${(netSavings / 100).toFixed(2)}`, change: "+0%", icon: DollarSign, iconColor: "text-success", bgColor: "bg-success/10" },
+            { label: "Total Income", value: formatCurrencyFromCents(income), change: "+0%", icon: TrendingUp, iconColor: "text-success", bgColor: "bg-success/10" },
+            { label: "Total Expenses", value: formatCurrencyFromCents(expenses), change: "+0%", icon: TrendingDown, iconColor: "text-destructive", bgColor: "bg-destructive/10" },
+            { label: "Net Savings", value: formatCurrencyFromCents(netSavings), change: "+0%", icon: DollarSign, iconColor: "text-success", bgColor: "bg-success/10" },
           ])
         }
       } catch (error) {

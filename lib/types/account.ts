@@ -4,7 +4,8 @@ export interface Account {
   id: number
   name: string
   type: AccountType
-  balance: number // in cents
+  balance: number // in cents (for non-credit cards)
+  limit?: number // in cents (for credit cards only - credit limit)
   currency: string
   bankName?: string
   accountNumber?: string // Last 4 digits for display

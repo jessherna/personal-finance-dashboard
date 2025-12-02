@@ -1,8 +1,9 @@
 /**
  * Formats a date string to a relative time (e.g., "2 days ago")
+ * Uses Toronto timezone for current time reference
  */
 export function getRelativeTime(date: string): string {
-  const now = new Date()
+  const now = getCurrentDateInToronto()
   const targetDate = new Date(date)
   const diffInMs = now.getTime() - targetDate.getTime()
   const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24))
@@ -17,9 +18,10 @@ export function getRelativeTime(date: string): string {
 /**
  * Formats a date to relative time with suffix (e.g., "2 hours ago", "3 minutes ago")
  * Similar to date-fns formatDistanceToNow
+ * Uses Toronto timezone for current time reference
  */
 export function formatDistanceToNow(date: Date | string, options?: { addSuffix?: boolean }): string {
-  const now = new Date()
+  const now = getCurrentDateInToronto()
   const targetDate = typeof date === "string" ? new Date(date) : date
   const diffInMs = now.getTime() - targetDate.getTime()
   const diffInSeconds = Math.floor(diffInMs / 1000)
@@ -54,17 +56,17 @@ export function formatDistanceToNow(date: Date | string, options?: { addSuffix?:
 }
 
 /**
- * Gets the current month name
+ * Gets the current month name in Toronto timezone
  */
 export function getCurrentMonth(): string {
-  return new Date().toLocaleDateString("en-US", { month: "long" })
+  return getCurrentDateInToronto().toLocaleDateString("en-US", { month: "long" })
 }
 
 /**
- * Gets the current year
+ * Gets the current year in Toronto timezone
  */
 export function getCurrentYear(): number {
-  return new Date().getFullYear()
+  return getCurrentDateInToronto().getFullYear()
 }
 
 /**
@@ -77,4 +79,74 @@ export function formatDate(date: Date | string): string {
     day: "numeric",
     year: "numeric",
   })
+}
+
+/**
+ * Gets the current date/time in Toronto, Canada timezone (America/Toronto)
+ * Use this for any calculations that need the current time
+ */
+export function getCurrentDateInToronto(): Date {
+  const now = new Date()
+  // Convert to Toronto timezone (America/Toronto)
+  const torontoTimeString = now.toLocaleString("en-US", { timeZone: "America/Toronto" })
+  return new Date(torontoTimeString)
+}
+
+/**
+ * Formats a date and time to a human-readable format
+ * Example: "Jan 15, 2024 at 2:30 PM"
+ * Month is limited to 3 characters
+ */
+export function formatDateTime(date: string | Date, time?: string): string {
+  try {
+    const dateObj = typeof date === "string" ? new Date(date) : date
+    
+    if (isNaN(dateObj.getTime())) {
+      return typeof date === "string" ? date : date.toString() // Return original if invalid
+    }
+    
+    // Format date: "Jan 15, 2024" (month limited to 3 chars)
+    const formattedDate = dateObj.toLocaleDateString("en-US", {
+      month: "short", // 3-character month (Jan, Feb, Mar, etc.)
+      day: "numeric",
+      year: "numeric",
+    })
+    
+    // Format time if provided
+    if (time && time.trim()) {
+      try {
+        let timeStr = time.trim()
+        
+        // Handle 24-hour format (HH:MM or HH:MM:SS)
+        if (timeStr.match(/^\d{1,2}:\d{2}(:\d{2})?$/)) {
+          const timeParts = timeStr.split(":")
+          const hour24 = parseInt(timeParts[0], 10)
+          const minutes = timeParts[1]
+          const hour12 = hour24 === 0 ? 12 : hour24 > 12 ? hour24 - 12 : hour24
+          const ampm = hour24 >= 12 ? "PM" : "AM"
+          timeStr = `${hour12}:${minutes} ${ampm}`
+        } else if (!timeStr.includes("AM") && !timeStr.includes("PM")) {
+          // If no AM/PM and not in HH:MM format, try to parse it
+          // This handles cases like "9:00" that need AM/PM
+          const timeMatch = timeStr.match(/^(\d{1,2}):(\d{2})/)
+          if (timeMatch) {
+            const hour24 = parseInt(timeMatch[1], 10)
+            const minutes = timeMatch[2]
+            const hour12 = hour24 === 0 ? 12 : hour24 > 12 ? hour24 - 12 : hour24
+            const ampm = hour24 >= 12 ? "PM" : "AM"
+            timeStr = `${hour12}:${minutes} ${ampm}`
+          }
+        }
+        
+        return `${formattedDate} at ${timeStr}`
+      } catch {
+        // If time parsing fails, just append it as-is
+        return `${formattedDate} at ${time}`
+      }
+    }
+    
+    return formattedDate
+  } catch {
+    return typeof date === "string" ? date : date.toString()
+  }
 }

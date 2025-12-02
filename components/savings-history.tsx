@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Area, AreaChart, XAxis, YAxis } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { useAuth } from "@/contexts/auth-context"
+import { getCurrentDateInToronto } from "@/lib/utils/date"
+import { formatCurrencyFromCents } from "@/lib/utils/format"
 import type { Transaction, SavingsGoal } from "@/lib/types"
 
 export function SavingsHistory() {
@@ -55,7 +57,8 @@ export function SavingsHistory() {
   const data = useMemo(() => {
     if (transactions.length === 0 && savingsGoals.length === 0) return []
 
-    const now = new Date()
+    // Use Toronto timezone for current date calculations
+    const now = getCurrentDateInToronto()
     const months: string[] = []
     const monthData: Record<string, number> = {}
 
@@ -200,7 +203,7 @@ export function SavingsHistory() {
                 <div className="text-xs text-muted-foreground">{activity.date}</div>
               </div>
               {activity.amount > 0 && (
-                <div className="text-sm font-semibold text-success">+C${activity.amount.toLocaleString()}</div>
+                <div className="text-sm font-semibold text-success">+{formatCurrencyFromCents(activity.amount)}</div>
               )}
             </div>
             ))

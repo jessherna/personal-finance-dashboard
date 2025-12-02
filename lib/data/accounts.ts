@@ -29,7 +29,8 @@ export const mockAccounts: Account[] = [
     id: 3,
     name: "Credit Card",
     type: "credit_card",
-    balance: -500000, // -C$5,000.00 in cents (debt)
+    balance: 0, // Credit cards start with 0 balance
+    limit: 10000000, // C$100,000.00 credit limit in cents
     currency: "C$",
     bankName: "Visa",
     accountNumber: "****9012",

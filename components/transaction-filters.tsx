@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -17,6 +17,10 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Label } from "@/components/ui/label"
 import { Search, SlidersHorizontal, Download, Plus, X } from "lucide-react"
+import { useAuth } from "@/contexts/auth-context"
+import { formatCurrencyFromCents } from "@/lib/utils/format"
+import { getCurrentDateInToronto } from "@/lib/utils/date"
+import { toast } from "sonner"
 import type { Transaction, TransactionType, TransactionStatus, TransactionCategory } from "@/lib/types"
 import type { SavingsGoal } from "@/lib/types"
 import type { BudgetCategory } from "@/lib/types"
@@ -71,6 +75,7 @@ interface TransactionFiltersProps {
   setSavingsGoals?: React.Dispatch<React.SetStateAction<SavingsGoal[]>>
   budgetCategories?: BudgetCategory[]
   accounts?: Account[]
+  setAccounts?: React.Dispatch<React.SetStateAction<Account[]>>
   selectedAccountId?: number | null
   recurringBills?: RecurringBill[]
   setBills?: React.Dispatch<React.SetStateAction<RecurringBill[]>>
@@ -103,10 +108,13 @@ export function TransactionFilters({
   setSavingsGoals,
   budgetCategories = [],
   accounts = [],
+  setAccounts,
   selectedAccountId,
   recurringBills = [],
   setBills,
 }: TransactionFiltersProps) {
+  const { user, isViewingAsUser } = useAuth()
+  const [isSaving, setIsSaving] = useState(false)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false)
   const [isAdvancedFilterOpen, setIsAdvancedFilterOpen] = useState(false)
@@ -117,8 +125,8 @@ export function TransactionFilters({
   const [newTransaction, setNewTransaction] = useState({
     name: "",
     category: "Miscellaneous" as TransactionCategory,
-    date: new Date().toISOString().split("T")[0],
-    time: new Date().toTimeString().slice(0, 5),
+    date: "", // Will be set when dialog opens
+    time: "", // Will be set when dialog opens
     amount: "",
     type: "expense" as TransactionType,
     status: "completed" as TransactionStatus,
@@ -128,6 +136,46 @@ export function TransactionFilters({
     budgetCategoryId: null as number | null | string,
     recurringBillId: null as number | null | string,
   })
+
+  // Set date and time when dialog opens
+  useEffect(() => {
+    if (isAddDialogOpen) {
+      const now = getCurrentDateInToronto()
+      setNewTransaction((prev) => ({
+        ...prev,
+        date: now.toISOString().split("T")[0],
+        time: now.toTimeString().slice(0, 5),
+      }))
+    }
+  }, [isAddDialogOpen])
+
+  // Auto-suggest budget category based on transaction name or category
+  useEffect(() => {
+    if (isAddDialogOpen && newTransaction.name && budgetCategories.length > 0 && !newTransaction.budgetCategoryId) {
+      const nameLower = newTransaction.name.toLowerCase()
+      const categoryLower = newTransaction.category.toLowerCase()
+      
+      // Try to find a matching budget category by name or transaction category
+      const matchingBudgetCategory = budgetCategories.find((budgetCat) => {
+        const budgetNameLower = budgetCat.name.toLowerCase()
+        // Match if transaction name contains budget category name or vice versa
+        // Or if transaction category matches budget category name
+        return nameLower.includes(budgetNameLower) || 
+               budgetNameLower.includes(nameLower) ||
+               categoryLower === budgetNameLower ||
+               (categoryLower === "food" && (budgetNameLower.includes("grocery") || budgetNameLower.includes("food"))) ||
+               (categoryLower === "rent" && budgetNameLower.includes("rent")) ||
+               (categoryLower === "subscription" && (budgetNameLower.includes("subscription") || budgetNameLower.includes("utility")))
+      })
+      
+      if (matchingBudgetCategory) {
+        setNewTransaction((prev) => ({
+          ...prev,
+          budgetCategoryId: matchingBudgetCategory.id,
+        }))
+      }
+    }
+  }, [isAddDialogOpen, newTransaction.name, newTransaction.category, budgetCategories, newTransaction.budgetCategoryId])
 
   // Merge default and custom categories
   const allCategories = [...DEFAULT_CATEGORIES, ...Object.keys(customCategories)] as TransactionCategory[]
@@ -159,18 +207,66 @@ export function TransactionFilters({
     return date.toISOString().split("T")[0]
   }
 
-  const handleAddCustomCategory = () => {
+  const handleAddCustomCategory = async () => {
     const trimmedName = newCategoryName.trim()
-    if (trimmedName && !allCategories.includes(trimmedName as TransactionCategory)) {
+    if (!trimmedName) {
+      toast.error("Category name cannot be empty")
+      return
+    }
+    
+    if (allCategories.includes(trimmedName as TransactionCategory)) {
+      toast.error("Category already exists")
+      return
+    }
+
+    if (!user) {
+      toast.error("You must be logged in to add custom categories")
+      return
+    }
+
+    // Ensure color is valid, default to blue if not
+    const colorToUse = newCategoryColor && newCategoryColor.startsWith("#") 
+      ? newCategoryColor 
+      : "#4E79A7"
+
+    try {
+      const effectiveUserId = isViewingAsUser ? 2 : user.id
+      const headers = {
+        "Content-Type": "application/json",
+        "x-user-id": String(effectiveUserId),
+        "x-user-role": user.role || "user",
+      }
+
+      const response = await fetch("/api/custom-categories", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: trimmedName,
+          color: colorToUse,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        toast.error(errorData.error || "Failed to save custom category")
+        return
+      }
+
+      // Update local state after successful API call
       setCustomCategories((prev) => ({
         ...prev,
-        [trimmedName]: newCategoryColor,
+        [trimmedName]: colorToUse,
       }))
+      
       // Auto-select the newly added category
       setNewTransaction({ ...newTransaction, category: trimmedName as TransactionCategory })
       setNewCategoryName("")
       setNewCategoryColor("#4E79A7")
       setIsCategoryDialogOpen(false)
+      toast.success(`Category "${trimmedName}" added successfully`)
+    } catch (error) {
+      console.error("Error adding custom category:", error)
+      toast.error("Network error. Please try again.")
     }
   }
 
@@ -179,25 +275,58 @@ export function TransactionFilters({
     setIsDeleteCategoryDialogOpen(true)
   }
 
-  const confirmDeleteCategory = () => {
-    if (categoryToDelete) {
+  const confirmDeleteCategory = async () => {
+    if (!categoryToDelete || !user) {
+      setIsDeleteCategoryDialogOpen(false)
+      setCategoryToDelete(null)
+      return
+    }
+
+    try {
+      const effectiveUserId = isViewingAsUser ? 2 : user.id
+      const headers = {
+        "x-user-id": String(effectiveUserId),
+        "x-user-role": user.role || "user",
+      }
+
+      // URL encode the category name
+      const encodedName = encodeURIComponent(categoryToDelete)
+      const response = await fetch(`/api/custom-categories/${encodedName}`, {
+        method: "DELETE",
+        headers,
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        toast.error(errorData.error || "Failed to delete custom category")
+        return
+      }
+
+      // Update local state after successful API call
       setCustomCategories((prev) => {
         const updated = { ...prev }
         delete updated[categoryToDelete]
         return updated
       })
+      
       // Update transactions that use this category to "Miscellaneous"
       setTransactions((prev) =>
         prev.map((transaction) =>
           transaction.category === categoryToDelete ? { ...transaction, category: "Miscellaneous" } : transaction,
         ),
       )
+      
       // If the deleted category was selected, reset to Miscellaneous
       if (newTransaction.category === categoryToDelete) {
         setNewTransaction({ ...newTransaction, category: "Miscellaneous" })
       }
+      
+      toast.success(`Category "${categoryToDelete}" deleted successfully`)
       setIsDeleteCategoryDialogOpen(false)
       setCategoryToDelete(null)
+    } catch (error) {
+      console.error("Error deleting custom category:", error)
+      toast.error("Network error. Please try again.")
     }
   }
 
@@ -226,13 +355,14 @@ export function TransactionFilters({
     // Apply period filter
     if (selectedPeriod !== "all") {
       const days = parseInt(selectedPeriod)
-      const cutoffDate = new Date()
+      // Use Toronto timezone for current date calculations
+      const cutoffDate = getCurrentDateInToronto()
       cutoffDate.setDate(cutoffDate.getDate() - days)
       cutoffDate.setHours(0, 0, 0, 0)
       filtered = filtered.filter((transaction) => {
         let transactionDate: Date
         if (transaction.date === "Today") {
-          transactionDate = new Date()
+          transactionDate = getCurrentDateInToronto()
         } else {
           transactionDate = new Date(transaction.date)
         }
@@ -265,7 +395,7 @@ export function TransactionFilters({
       filtered = filtered.filter((transaction) => {
         let transactionDate: Date
         if (transaction.date === "Today") {
-          transactionDate = new Date()
+          transactionDate = getCurrentDateInToronto()
         } else {
           transactionDate = new Date(transaction.date)
         }
@@ -283,7 +413,7 @@ export function TransactionFilters({
       filtered = filtered.filter((transaction) => {
         let transactionDate: Date
         if (transaction.date === "Today") {
-          transactionDate = new Date()
+          transactionDate = getCurrentDateInToronto()
         } else {
           transactionDate = new Date(transaction.date)
         }
@@ -315,15 +445,25 @@ export function TransactionFilters({
     const link = document.createElement("a")
     const url = URL.createObjectURL(blob)
     link.setAttribute("href", url)
-    link.setAttribute("download", `transactions_${new Date().toISOString().split("T")[0]}.csv`)
+    link.setAttribute("download", `transactions_${getCurrentDateInToronto().toISOString().split("T")[0]}.csv`)
     link.style.visibility = "hidden"
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
   }
 
-  const handleAddTransaction = () => {
-    if (!newTransaction.name.trim() || !newTransaction.amount) {
+  const handleAddTransaction = async () => {
+    if (!newTransaction.name.trim() || !newTransaction.amount || !user) {
+      return
+    }
+
+    // Require account selection
+    const accountIdValue = newTransaction.accountId === null || newTransaction.accountId === "" || newTransaction.accountId === "none"
+      ? (selectedAccountId || null)
+      : newTransaction.accountId
+    
+    if (!accountIdValue) {
+      toast.error("Please select an account. Account is required.")
       return
     }
 
@@ -341,107 +481,166 @@ export function TransactionFilters({
       }
     }
 
-    const newId = Math.max(...transactions.map((t) => t.id), 0) + 1
-    const dateStr = new Date(newTransaction.date).toLocaleDateString("en-US", {
-      month: "short",
-      day: "2-digit",
-      year: "numeric",
-    })
-    const timeStr = new Date(`2000-01-01T${newTransaction.time}`).toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    })
+    try {
+      setIsSaving(true)
+      const effectiveUserId = isViewingAsUser ? 2 : user.id
 
-    // Parse budget category ID
-    const budgetCategoryId = newTransaction.budgetCategoryId === "none" || newTransaction.budgetCategoryId === ""
-      ? null
-      : typeof newTransaction.budgetCategoryId === "string"
-        ? parseInt(newTransaction.budgetCategoryId)
-        : newTransaction.budgetCategoryId
+      // Parse budget category ID
+      const budgetCategoryId = newTransaction.budgetCategoryId === "none" || newTransaction.budgetCategoryId === ""
+        ? null
+        : typeof newTransaction.budgetCategoryId === "string"
+          ? parseInt(newTransaction.budgetCategoryId)
+          : newTransaction.budgetCategoryId
 
-    // Parse account ID - use selectedAccountId if no account is selected in form, otherwise use form value
-    const accountId = newTransaction.accountId === "none" || newTransaction.accountId === "" || newTransaction.accountId === null
-      ? (selectedAccountId || null)
-      : typeof newTransaction.accountId === "string"
-        ? parseInt(newTransaction.accountId)
-        : newTransaction.accountId
-
-    // Parse recurring bill ID
-    const recurringBillId = newTransaction.recurringBillId === "none" || newTransaction.recurringBillId === "" || newTransaction.recurringBillId === null
-      ? null
-      : typeof newTransaction.recurringBillId === "string"
-        ? parseInt(newTransaction.recurringBillId)
-        : newTransaction.recurringBillId
-
-    const transaction: Transaction = {
-      id: newId,
-      name: newTransaction.name.trim(),
-      category: newTransaction.category,
-      date: dateStr,
-      time: timeStr,
-      amount: Math.round(amount * 100), // Convert to cents
-      type: newTransaction.type,
-      status: newTransaction.status,
-      accountId: accountId,
-      savingsGoalId: newTransaction.savingsGoalId ? Number(newTransaction.savingsGoalId) : undefined,
-      savingsAmount: savingsAmount > 0 ? Math.round(savingsAmount * 100) : undefined, // Convert to cents
-      budgetCategoryId: budgetCategoryId,
-      recurringBillId: recurringBillId,
-    }
-
-    setTransactions((prev) => [transaction, ...prev])
-    
-    // Update savings goal if savings amount is allocated
-    if (setSavingsGoals && newTransaction.savingsGoalId && savingsAmount > 0) {
-      const goalId = Number(newTransaction.savingsGoalId)
-      setSavingsGoals((prev) =>
-        prev.map((goal) =>
-          goal.id === goalId
-            ? { ...goal, current: goal.current + savingsAmount }
-            : goal
-        )
-      )
-    }
-
-    // Update recurring bill if this transaction pays a bill
-    if (setBills && recurringBillId !== null) {
-      const bill = recurringBills.find((b) => b.id === recurringBillId)
-      if (bill) {
-        const paymentDate = newTransaction.date // ISO date string
-        // Calculate next due date based on payment date, not current nextDueDate
-        const nextDueDate = calculateNextDueDate(paymentDate, bill.frequency)
-        setBills((prev) =>
-          prev.map((b) =>
-            b.id === recurringBillId
-              ? {
-                  ...b,
-                  nextDueDate: nextDueDate,
-                  lastPaidDate: paymentDate,
-                }
-              : b
-          )
-        )
+      // Parse account ID - account is required, so use form value or selectedAccountId
+      const accountId = newTransaction.accountId === null || newTransaction.accountId === "" || newTransaction.accountId === "none"
+        ? (selectedAccountId ? parseInt(String(selectedAccountId)) : null)
+        : typeof newTransaction.accountId === "string"
+          ? parseInt(newTransaction.accountId)
+          : newTransaction.accountId
+      
+      // Ensure account is selected (should not happen due to validation above, but double-check)
+      if (!accountId) {
+        toast.error("Please select an account. Account is required.")
+        setIsSaving(false)
+        return
       }
+
+      // Parse recurring bill ID
+      const recurringBillId = newTransaction.recurringBillId === "none" || newTransaction.recurringBillId === "" || newTransaction.recurringBillId === null
+        ? null
+        : typeof newTransaction.recurringBillId === "string"
+          ? parseInt(newTransaction.recurringBillId)
+          : newTransaction.recurringBillId
+
+      // Format date as ISO string for API
+      const dateStr = new Date(newTransaction.date).toISOString().split("T")[0]
+      const timeStr = newTransaction.time || "00:00"
+
+      const response = await fetch("/api/transactions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": String(effectiveUserId),
+          "x-user-role": user.role || "user",
+        },
+        body: JSON.stringify({
+          name: newTransaction.name.trim(),
+          category: newTransaction.category,
+          date: dateStr,
+          time: timeStr,
+          amount: Math.round(amount * 100), // Convert to cents
+          type: newTransaction.type,
+          status: newTransaction.status,
+          accountId: accountId,
+          savingsGoalId: newTransaction.savingsGoalId ? Number(newTransaction.savingsGoalId) : undefined,
+          savingsAmount: savingsAmount > 0 ? Math.round(savingsAmount * 100) : undefined, // Convert to cents
+          budgetCategoryId: budgetCategoryId,
+          recurringBillId: recurringBillId,
+        }),
+      })
+
+      if (response.ok) {
+        const transaction = await response.json()
+        // Format date for display
+        const displayDate = new Date(transaction.date).toLocaleDateString("en-US", {
+          month: "short",
+          day: "2-digit",
+          year: "numeric",
+        })
+        const displayTime = transaction.time ? new Date(`2000-01-01T${transaction.time}`).toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+        }) : undefined
+
+        const formattedTransaction: Transaction = {
+          ...transaction,
+          date: displayDate,
+          time: displayTime,
+        }
+
+        setTransactions((prev) => [formattedTransaction, ...prev])
+        
+        // Refresh accounts since transaction creation affects account balances
+        if (setAccounts) {
+          try {
+            const accountsResponse = await fetch("/api/accounts", {
+              headers: {
+                "x-user-id": String(effectiveUserId),
+                "x-user-role": user.role || "user",
+              },
+            })
+            if (accountsResponse.ok) {
+              const accountsData = await accountsResponse.json()
+              setAccounts(accountsData)
+            }
+          } catch (error) {
+            console.error("Error refreshing accounts:", error)
+          }
+        }
+        
+        // Update savings goal if savings amount is allocated
+        if (setSavingsGoals && newTransaction.savingsGoalId && savingsAmount > 0) {
+          const goalId = Number(newTransaction.savingsGoalId)
+          setSavingsGoals((prev) =>
+            prev.map((goal) =>
+              goal.id === goalId
+                ? { ...goal, current: goal.current + savingsAmount }
+                : goal
+            )
+          )
+        }
+
+        // Update recurring bill if this transaction pays a bill
+        if (setBills && recurringBillId !== null) {
+          const bill = recurringBills.find((b) => b.id === recurringBillId)
+          if (bill) {
+            const paymentDate = dateStr // ISO date string
+            // Calculate next due date based on payment date, not current nextDueDate
+            const nextDueDate = calculateNextDueDate(paymentDate, bill.frequency)
+            setBills((prev) =>
+              prev.map((b) =>
+                b.id === recurringBillId
+                  ? {
+                      ...b,
+                      nextDueDate: nextDueDate,
+                      lastPaidDate: paymentDate,
+                    }
+                  : b
+              )
+            )
+          }
+        }
+        
+        // Reset form
+        setNewTransaction({
+          name: "",
+          category: "Miscellaneous",
+          date: getCurrentDateInToronto().toISOString().split("T")[0],
+          time: getCurrentDateInToronto().toTimeString().slice(0, 5),
+          amount: "",
+          type: "expense",
+          status: "completed",
+          accountId: selectedAccountId || null,
+          savingsGoalId: "",
+          savingsAmount: "",
+          budgetCategoryId: null,
+          recurringBillId: null,
+        })
+        
+        setIsAddDialogOpen(false)
+        toast.success("Transaction created successfully")
+      } else {
+        const error = await response.json()
+        toast.error(error.error || "Failed to create transaction")
+      }
+    } catch (error) {
+      console.error("Error creating transaction:", error)
+      toast.error("Failed to create transaction")
+    } finally {
+      setIsSaving(false)
     }
-    
-    // Reset form
-    setNewTransaction({
-      name: "",
-      category: "Miscellaneous",
-      date: new Date().toISOString().split("T")[0],
-      time: new Date().toTimeString().slice(0, 5),
-      amount: "",
-      type: "expense",
-      status: "completed",
-      accountId: selectedAccountId || null,
-      savingsGoalId: "",
-      savingsAmount: "",
-      budgetCategoryId: null,
-      recurringBillId: null,
-    })
-    
-    setIsAddDialogOpen(false)
   }
   return (
     <div className="flex flex-wrap items-center gap-4">
@@ -615,7 +814,7 @@ export function TransactionFilters({
             Add Transaction
           </Button>
         </DialogTrigger>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[700px] lg:max-w-[900px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add New Transaction</DialogTitle>
             <DialogDescription>Enter the details for your new transaction.</DialogDescription>
@@ -636,7 +835,7 @@ export function TransactionFilters({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="transaction-type">Type</Label>
                 <Select
@@ -801,7 +1000,7 @@ export function TransactionFilters({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="transaction-date">Date</Label>
                 <Input
@@ -841,21 +1040,25 @@ export function TransactionFilters({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="transaction-account">Account (Optional)</Label>
+              <Label htmlFor="transaction-account">Account <span className="text-destructive">*</span></Label>
               <Select
-                value={newTransaction.accountId === null ? (selectedAccountId ? String(selectedAccountId) : "none") : String(newTransaction.accountId)}
+                value={
+                  newTransaction.accountId === null || newTransaction.accountId === "" || newTransaction.accountId === "none"
+                    ? (selectedAccountId ? String(selectedAccountId) : "")
+                    : String(newTransaction.accountId)
+                }
                 onValueChange={(value) => 
                   setNewTransaction({ 
                     ...newTransaction, 
-                    accountId: value === "none" ? null : value 
+                    accountId: value === "" ? null : value 
                   })
                 }
+                required
               >
                 <SelectTrigger id="transaction-account">
-                  <SelectValue placeholder="Select account" />
+                  <SelectValue placeholder="Select account (required)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No Account</SelectItem>
                   {accounts.filter(a => a.isActive).map((account) => (
                     <SelectItem key={account.id} value={String(account.id)}>
                       <div className="flex items-center gap-2">
@@ -984,7 +1187,7 @@ export function TransactionFilters({
                         <span>{bill.icon || "📦"}</span>
                         <span>{bill.name}</span>
                         <span className="text-xs text-muted-foreground">
-                          (C${(bill.amount / 100).toFixed(2)})
+                          ({formatCurrencyFromCents(bill.amount)})
                         </span>
                       </div>
                     </SelectItem>
@@ -1002,9 +1205,15 @@ export function TransactionFilters({
             </Button>
             <Button
               onClick={handleAddTransaction}
-              disabled={!newTransaction.name.trim() || !newTransaction.amount || parseFloat(newTransaction.amount) <= 0}
+              disabled={
+                !newTransaction.name.trim() || 
+                !newTransaction.amount || 
+                parseFloat(newTransaction.amount) <= 0 || 
+                isSaving ||
+                (!newTransaction.accountId && !selectedAccountId)
+              }
             >
-              Add Transaction
+              {isSaving ? "Adding..." : "Add Transaction"}
             </Button>
           </DialogFooter>
         </DialogContent>

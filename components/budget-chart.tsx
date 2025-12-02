@@ -13,6 +13,8 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useChartPeriod } from "@/hooks/use-chart-period"
 import { useAuth } from "@/contexts/auth-context"
+import { getCurrentDateInToronto } from "@/lib/utils/date"
+import { formatCurrencyFromCents } from "@/lib/utils/format"
 import type { Transaction, BudgetCategory } from "@/lib/types"
 
 export function BudgetChart() {
@@ -20,6 +22,7 @@ export function BudgetChart() {
   const { period, setPeriod } = useChartPeriod()
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>([])
+  const [accounts, setAccounts] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   
   useEffect(() => {
@@ -37,9 +40,10 @@ export function BudgetChart() {
           "x-user-role": user.role || "user",
         }
 
-        const [transactionsRes, budgetRes] = await Promise.all([
+        const [transactionsRes, budgetRes, accountsRes] = await Promise.all([
           fetch("/api/transactions", { headers }),
           fetch("/api/budget-categories", { headers }),
+          fetch("/api/accounts", { headers }),
         ])
 
         if (transactionsRes.ok) {
@@ -49,6 +53,10 @@ export function BudgetChart() {
         if (budgetRes.ok) {
           const data = await budgetRes.json()
           setBudgetCategories(data)
+        }
+        if (accountsRes.ok) {
+          const data = await accountsRes.json()
+          setAccounts(data)
         }
       } catch (error) {
         console.error("Error fetching data:", error)
@@ -60,11 +68,24 @@ export function BudgetChart() {
     fetchData()
   }, [user, isViewingAsUser])
   
+  // Helper function to check if transaction is effectively an expense
+  // Credit card payments (income to credit cards) should be treated as expenses
+  const isEffectiveExpense = (t: Transaction): boolean => {
+    if (t.type === "expense") return true
+    // Income transactions to credit cards are actually payments (expenses)
+    if (t.type === "income" && t.accountId) {
+      const account = accounts.find((acc: any) => acc.id === t.accountId)
+      return account?.type === "credit_card"
+    }
+    return false
+  }
+  
   // Calculate budget vs expense data from transactions and budget categories
   const data = useMemo(() => {
     if (transactions.length === 0 || budgetCategories.length === 0) return []
     
-    const now = new Date()
+    // Use Toronto timezone for current date calculations
+    const now = getCurrentDateInToronto()
     let startDate: Date
     
     switch (period) {
@@ -83,7 +104,7 @@ export function BudgetChart() {
     
     const filteredTransactions = transactions.filter((t) => {
       const txnDate = new Date(t.date)
-      return txnDate >= startDate && t.type === "expense" && t.budgetCategoryId
+      return txnDate >= startDate && isEffectiveExpense(t) && t.budgetCategoryId
     })
     
     return budgetCategories.map((category) => {
@@ -97,7 +118,7 @@ export function BudgetChart() {
         expense: expenses,
       }
     })
-  }, [transactions, budgetCategories, period])
+  }, [transactions, budgetCategories, period, accounts])
 
   // Tableau-inspired colors for Budget vs Expense
   const budgetColor = "#4E79A7" // Blue - represents planned/budget
@@ -154,8 +175,43 @@ export function BudgetChart() {
               axisLine={false}
               tickFormatter={(value) => `C$${value / 1000}k`}
             />
-            <ChartTooltip content={<ChartTooltipContent />} />
-            <ChartLegend content={<ChartLegendContent />} />
+            <ChartTooltip
+              content={({ active, payload }) => {
+                if (!active || !payload || !payload.length) return null
+                
+                const data = payload[0]?.payload
+                if (!data) return null
+
+                return (
+                  <div className="border-border/50 bg-background rounded-lg border px-3 py-2 shadow-lg">
+                    <div className="font-medium text-sm mb-2">{data.category}</div>
+                    <div className="space-y-1">
+                      {payload.map((entry: any, index: number) => {
+                        const value = entry.value as number
+                        const label = entry.name === "budget" ? "Budget" : "Expense"
+                        const color = entry.color
+                        
+                        return (
+                          <div key={index} className="flex items-center justify-between gap-4 text-xs">
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="h-2 w-2 rounded-full"
+                                style={{ backgroundColor: color }}
+                              />
+                              <span className="text-muted-foreground">{label}</span>
+                            </div>
+                            <span className="font-medium">
+                              {formatCurrencyFromCents(value)}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              }}
+            />
+            <ChartLegend content={<ChartLegendContent payload={[]} />} />
             <Bar dataKey="budget" fill={budgetColor} radius={[4, 4, 0, 0]} />
             <Bar dataKey="expense" fill={expenseColor} radius={[4, 4, 0, 0]} />
           </BarChart>

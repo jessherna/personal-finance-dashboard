@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/chart"
 import { useAuth } from "@/contexts/auth-context"
 import { average, sum } from "@/lib/utils"
+import { getCurrentDateInToronto } from "@/lib/utils/date"
 import { AlertCircle } from "lucide-react"
 import type { Transaction, BudgetCategory } from "@/lib/types"
 
@@ -66,7 +67,8 @@ export function MonthlyComparison() {
       return { data: [], categoryData: [], totalBudget: 0 }
     }
 
-    const now = new Date()
+    // Use Toronto timezone for current date calculations
+    const now = getCurrentDateInToronto()
     const months: string[] = []
     const monthData: Record<string, number> = {}
     const categoryMonthData: Record<string, Record<string, number>> = {}
@@ -82,9 +84,31 @@ export function MonthlyComparison() {
 
     // Process transactions
     transactions
-      .filter((t) => t.type === "expense")
+      .filter((t) => {
+        // Only count completed expenses (or expenses with no status, which default to completed)
+        return t.type === "expense" && (t.status === "completed" || !t.status)
+      })
       .forEach((t) => {
-        const txnDate = new Date(t.date)
+        // Handle different date formats (similar to budget-overview)
+        let txnDate: Date
+        try {
+          // Try parsing as ISO string first (YYYY-MM-DD)
+          if (t.date && typeof t.date === "string" && t.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            txnDate = new Date(t.date + "T00:00:00") // Add time to avoid timezone issues
+          } else {
+            txnDate = new Date(t.date)
+          }
+          
+          // Check if date is valid
+          if (isNaN(txnDate.getTime())) {
+            console.warn(`Invalid transaction date: ${t.date} for transaction ${t.id}`)
+            return
+          }
+        } catch (error) {
+          console.warn(`Error parsing transaction date: ${t.date} for transaction ${t.id}`, error)
+          return
+        }
+        
         const monthKey = txnDate.toLocaleDateString("en-US", { month: "short", year: "numeric" })
         
         if (months.includes(monthKey)) {
@@ -117,10 +141,6 @@ export function MonthlyComparison() {
     return { data, categoryData, totalBudget }
   }, [transactions, budgetCategories])
 
-  const avgSpending = data.length > 0 ? Math.round(average(data.map((d) => d.amount))) : 0
-  const highestMonth = data.length > 0 ? data.reduce((max, curr) => (curr.amount > max.amount ? curr : max)) : { month: "", amount: 0 }
-  const lowestMonth = data.length > 0 ? data.reduce((min, curr) => (curr.amount < min.amount ? curr : min)) : { month: "", amount: 0 }
-
   // Tableau-inspired colors for categories (assign colors to actual categories)
   const colorPalette = [
     "#4E79A7", // Blue
@@ -150,6 +170,30 @@ export function MonthlyComparison() {
     return budgets
   }, [budgetCategories])
 
+  // Calculate total spending per month from category data (only budget category expenses)
+  const monthlyTotals = useMemo(() => {
+    return categoryData.map((month) => {
+      const total = Object.keys(categoryColors).reduce((sum, category) => {
+        return sum + ((month[category as keyof typeof month] as number) || 0)
+      }, 0)
+      return {
+        month: month.month,
+        total,
+      }
+    })
+  }, [categoryData, categoryColors])
+
+  // Use monthlyTotals (budget category spending only) for summary stats to match the graph
+  const avgSpending = monthlyTotals.length > 0 
+    ? Math.round(average(monthlyTotals.map((d) => d.total))) 
+    : 0
+  const highestMonth = monthlyTotals.length > 0 
+    ? monthlyTotals.reduce((max, curr) => (curr.total > max.total ? curr : max)) 
+    : { month: "", total: 0 }
+  const lowestMonth = monthlyTotals.length > 0 
+    ? monthlyTotals.reduce((min, curr) => (curr.total < min.total ? curr : min)) 
+    : { month: "", total: 0 }
+
   // Helper function to generate gradient ID
   const getGradientId = (category: string) => {
     return `color${category.replace(/\s+/g, "").replace(/&/g, "")}`
@@ -169,19 +213,6 @@ export function MonthlyComparison() {
       return result
     })
   }, [categoryData, categoryBudgets, categoryColors])
-
-  // Calculate total spending per month from category data
-  const monthlyTotals = useMemo(() => {
-    return categoryData.map((month) => {
-      const total = Object.keys(categoryColors).reduce((sum, category) => {
-        return sum + ((month[category as keyof typeof month] as number) || 0)
-      }, 0)
-      return {
-        month: month.month,
-        total,
-      }
-    })
-  }, [categoryData, categoryColors])
 
   // Get months that exceeded budget
   const exceededBudgetMonths = useMemo(() => {
@@ -324,13 +355,13 @@ export function MonthlyComparison() {
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Highest month</span>
             <span className="font-medium text-foreground">
-              {highestMonth.month} - {((highestMonth.amount / totalBudget) * 100).toFixed(1)}%
+              {highestMonth.month} - {((highestMonth.total / totalBudget) * 100).toFixed(1)}%
             </span>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Lowest month</span>
             <span className="font-medium text-foreground">
-              {lowestMonth.month} - {((lowestMonth.amount / totalBudget) * 100).toFixed(1)}%
+              {lowestMonth.month} - {((lowestMonth.total / totalBudget) * 100).toFixed(1)}%
             </span>
           </div>
           {exceededBudgetMonths.length > 0 && (

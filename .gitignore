@@ -58,3 +58,6 @@ logs
 *.log
 
 node_modules
+
+# hide mongodb seed data
+mongodb-seed-data

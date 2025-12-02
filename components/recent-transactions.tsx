@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { ArrowUpRight, ArrowDownRight, MoreHorizontal } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
+import { formatCurrencyFromCents } from "@/lib/utils/format"
 import { CATEGORY_COLORS } from "@/lib/constants/categories"
 import type { Transaction } from "@/lib/types"
 
@@ -100,20 +101,14 @@ export function RecentTransactions() {
                       "flex items-center gap-1 font-semibold text-sm sm:text-base",
                       transaction.type === "income" ? "text-success" : "text-foreground",
                     )}
-                    aria-label={`${transaction.type === "income" ? "Income" : "Expense"}: C$${(transaction.amount / 100).toLocaleString("en-CA", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}`}
+                    aria-label={`${transaction.type === "income" ? "Income" : "Expense"}: ${formatCurrencyFromCents(transaction.amount)}`}
                   >
                     {transaction.type === "income" ? (
                       <ArrowDownRight className="h-4 w-4 text-success" aria-hidden="true" />
                     ) : (
                       <ArrowUpRight className="h-4 w-4 text-destructive" aria-hidden="true" />
                     )}
-                    C${(transaction.amount / 100).toLocaleString("en-CA", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
+                    {formatCurrencyFromCents(transaction.amount)}
                   </span>
                   <Button
                     variant="ghost"

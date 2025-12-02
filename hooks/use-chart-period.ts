@@ -2,9 +2,9 @@
 
 import { useState } from "react"
 
-type ChartPeriod = "weekly" | "monthly" | "yearly"
+type ChartPeriod = "weekly" | "monthly" | "yearly" | "all"
 
-export function useChartPeriod(defaultPeriod: ChartPeriod = "monthly") {
+export function useChartPeriod(defaultPeriod: ChartPeriod = "all") {
   const [period, setPeriod] = useState<ChartPeriod>(defaultPeriod)
 
   return {

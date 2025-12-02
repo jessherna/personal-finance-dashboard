@@ -65,28 +65,34 @@ function TableRow({ className, ...props }: React.ComponentProps<'tr'>) {
   )
 }
 
-function TableHead({ className, ...props }: React.ComponentProps<'th'>) {
+function TableHead({ className, ...props }: React.ComponentProps<'th'> & { sticky?: boolean; stickyLeft?: number }) {
+  const { sticky, stickyLeft, ...restProps } = props
   return (
     <th
       data-slot="table-head"
       className={cn(
         'text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]',
+        sticky && 'sticky z-20 bg-background',
         className,
       )}
-      {...props}
+      style={sticky && stickyLeft !== undefined ? { left: `${stickyLeft}px` } : undefined}
+      {...restProps}
     />
   )
 }
 
-function TableCell({ className, ...props }: React.ComponentProps<'td'>) {
+function TableCell({ className, ...props }: React.ComponentProps<'td'> & { sticky?: boolean; stickyLeft?: number }) {
+  const { sticky, stickyLeft, ...restProps } = props
   return (
     <td
       data-slot="table-cell"
       className={cn(
         'p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]',
+        sticky && 'sticky z-10 bg-background',
         className,
       )}
-      {...props}
+      style={sticky && stickyLeft !== undefined ? { left: `${stickyLeft}px` } : undefined}
+      {...restProps}
     />
   )
 }

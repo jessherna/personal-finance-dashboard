@@ -127,12 +127,6 @@ export default function LoginPage() {
             Sign up
           </Link>
         </div>
-
-        <div className="rounded-lg border border-border bg-muted/50 p-4 text-xs text-muted-foreground">
-          <p className="font-semibold mb-2">Demo Credentials:</p>
-          <p>Dev: admin@example.com / admin123</p>
-          <p>User: john.doe@example.com / user123</p>
-        </div>
       </div>
     </div>
   )

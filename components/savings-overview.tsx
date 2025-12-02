@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { useAuth } from "@/contexts/auth-context"
+import { formatCurrencyFromCents } from "@/lib/utils/format"
 import { PiggyBank, TrendingUp, Target, DollarSign } from "lucide-react"
 import type { SavingsGoal, Transaction } from "@/lib/types"
 
@@ -59,7 +60,7 @@ export function SavingsOverview() {
           setStats([
             {
               label: "Total Savings",
-              value: `C$${(combinedSavings / 100).toFixed(2)}`,
+              value: formatCurrencyFromCents(combinedSavings),
               change: "+0%",
               icon: PiggyBank,
               iconColor: "text-primary",
@@ -75,7 +76,7 @@ export function SavingsOverview() {
             },
             {
               label: "Total Target",
-              value: `C$${(totalTarget / 100).toFixed(2)}`,
+              value: formatCurrencyFromCents(totalTarget),
               change: "+0%",
               icon: DollarSign,
               iconColor: "text-success",

@@ -1,7 +1,9 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react"
 import type { User, LoginInput, CreateUserInput } from "@/lib/types/user"
+import { useIdleTimeout } from "@/hooks/use-idle-timeout"
+import { LoginPromptModal } from "@/components/login-prompt-modal"
 
 interface AuthContextType {
   user: User | null
@@ -28,8 +30,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isViewingAsUser, setIsViewingAsUser] = useState<boolean>(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false)
 
-  // Load user from localStorage on mount
+  const handleAutoLogout = useCallback(async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" })
+    } catch (error) {
+      console.error("Logout error:", error)
+    } finally {
+      setUser(null)
+      setIsViewingAsUser(false)
+      localStorage.removeItem("user")
+      localStorage.removeItem("token")
+      localStorage.removeItem("isViewingAsUser")
+      // Show login prompt after logout
+      setShowLoginPrompt(true)
+    }
+  }, [])
+
+  // Auto-logout after 30 seconds of idle time
+  const handleIdleTimeout = useCallback(() => {
+    if (user) {
+      // Log out the user and show login prompt
+      handleAutoLogout()
+    }
+  }, [user, handleAutoLogout])
+
+  // Enable idle timeout only when user is authenticated
+  useIdleTimeout({
+    timeout: 900000, // 15 minutes
+    onIdle: handleIdleTimeout,
+    enabled: !!user && !isLoading,
+  })
+
+  // Load user from localStorage on mount and verify with server
   useEffect(() => {
     const loadUser = async () => {
       try {
@@ -38,17 +72,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const token = localStorage.getItem("token")
         
         if (storedUser && token) {
-          const parsedUser = JSON.parse(storedUser)
-          // Verify token is still valid (in a real app, you'd verify with the server)
-          setUser(parsedUser)
-          
-          // Load view-as mode if exists
-          if (storedViewAs === "true") {
-            setIsViewingAsUser(true)
+          // Verify token and user with server
+          try {
+            const parsedUser = JSON.parse(storedUser)
+            // Include userId as query param as fallback for token parsing
+            const verifyUrl = `/api/auth/verify?userId=${parsedUser.id || ''}`
+            
+            const response = await fetch(verifyUrl, {
+              method: "GET",
+              headers: {
+                "x-token": token,
+              },
+            })
+
+            if (response.ok) {
+              const data = await response.json()
+              if (data.valid && data.user) {
+                // User exists in database and is valid
+                setUser(data.user)
+                // Update localStorage with fresh user data
+                localStorage.setItem("user", JSON.stringify(data.user))
+                
+                // Load view-as mode if exists
+                if (storedViewAs === "true") {
+                  setIsViewingAsUser(true)
+                }
+              } else {
+                // Invalid token or user - clear invalid data
+                console.warn("Token verification returned invalid response")
+                localStorage.removeItem("user")
+                localStorage.removeItem("token")
+                localStorage.removeItem("isViewingAsUser")
+              }
+            } else {
+              // User not found or token invalid - clear invalid data
+              const errorData = await response.json().catch(() => ({}))
+              console.warn("User verification failed:", errorData.error || "Unknown error")
+              localStorage.removeItem("user")
+              localStorage.removeItem("token")
+              localStorage.removeItem("isViewingAsUser")
+            }
+          } catch (verifyError) {
+            // Network error or other issue - clear invalid data
+            console.error("User verification error:", verifyError)
+            localStorage.removeItem("user")
+            localStorage.removeItem("token")
+            localStorage.removeItem("isViewingAsUser")
           }
         }
       } catch (error) {
-        console.error("Failed to load user:", error)
+        console.error("Failed to load/verify user:", error)
+        // Clear invalid data
+        setUser(null)
+        setIsViewingAsUser(false)
         localStorage.removeItem("user")
         localStorage.removeItem("token")
         localStorage.removeItem("isViewingAsUser")
@@ -158,7 +234,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isRegularUser,
   }
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      <LoginPromptModal open={showLoginPrompt} onOpenChange={setShowLoginPrompt} />
+    </AuthContext.Provider>
+  )
 }
 
 export function useAuth() {

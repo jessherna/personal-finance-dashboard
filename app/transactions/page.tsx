@@ -11,6 +11,7 @@ import type { Transaction } from "@/lib/types"
 import type { SavingsGoal } from "@/lib/types"
 import type { Account } from "@/lib/types"
 import type { RecurringBill } from "@/lib/types"
+import type { BudgetCategory } from "@/lib/types"
 
 export default function TransactionsPage() {
   const { user, isViewingAsUser } = useAuth()
@@ -20,11 +21,12 @@ export default function TransactionsPage() {
   const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [bills, setBills] = useState<RecurringBill[]>([])
+  const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>([])
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState<string>("all")
   const [selectedType, setSelectedType] = useState<string>("all")
-  const [selectedPeriod, setSelectedPeriod] = useState<string>("30")
+  const [selectedPeriod, setSelectedPeriod] = useState<string>("all")
   const [minAmount, setMinAmount] = useState("")
   const [maxAmount, setMaxAmount] = useState("")
   const [selectedStatus, setSelectedStatus] = useState<string>("all")
@@ -49,11 +51,13 @@ export default function TransactionsPage() {
         }
         
         // Fetch all data in parallel
-        const [transactionsRes, accountsRes, savingsGoalsRes, billsRes] = await Promise.all([
+        const [transactionsRes, accountsRes, savingsGoalsRes, billsRes, customCategoriesRes, budgetCategoriesRes] = await Promise.all([
           fetch("/api/transactions", { headers }),
           fetch("/api/accounts", { headers }),
           fetch("/api/savings-goals", { headers }),
           fetch("/api/recurring-bills", { headers }),
+          fetch("/api/custom-categories", { headers }),
+          fetch("/api/budget-categories", { headers }),
         ])
 
         if (transactionsRes.ok) {
@@ -83,12 +87,28 @@ export default function TransactionsPage() {
         } else {
           setBills([])
         }
+
+        if (customCategoriesRes.ok) {
+          const data = await customCategoriesRes.json()
+          setCustomCategories(data)
+        } else {
+          setCustomCategories({})
+        }
+
+        if (budgetCategoriesRes.ok) {
+          const data = await budgetCategoriesRes.json()
+          setBudgetCategories(data)
+        } else {
+          setBudgetCategories([])
+        }
       } catch (error) {
         console.error("Error fetching data:", error)
         setTransactions([])
         setAccounts([])
         setSavingsGoals([])
         setBills([])
+        setCustomCategories({})
+        setBudgetCategories([])
       } finally {
         setIsLoading(false)
       }
@@ -156,7 +176,9 @@ export default function TransactionsPage() {
               setDateTo={setDateTo}
               savingsGoals={savingsGoals}
               setSavingsGoals={setSavingsGoals}
+              budgetCategories={budgetCategories}
               accounts={accounts}
+              setAccounts={setAccounts}
               selectedAccountId={selectedAccountId}
               recurringBills={bills}
               setBills={setBills}
@@ -177,8 +199,10 @@ export default function TransactionsPage() {
               dateTo={dateTo}
               selectedAccountId={selectedAccountId}
               accounts={accounts}
+              setAccounts={setAccounts}
               recurringBills={bills}
               setBills={setBills}
+              savingsGoals={savingsGoals}
             />
           </div>
         </main>

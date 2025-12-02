@@ -40,6 +40,9 @@ export default function ImportPage() {
     }
 
     try {
+      // Use effective user ID (for admin/dev viewing as user, use mock user ID 2)
+      const effectiveUserId = isViewingAsUser ? 2 : user.id
+      
       // Convert extracted transactions to the format expected by the API
       // Use accountId from transaction if available, otherwise use the provided accountId
       const transactionsToImport = selectedTransactions.map((t) => ({
@@ -61,7 +64,7 @@ export default function ImportPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-user-id": String(user.id),
+          "x-user-id": String(effectiveUserId),
           "x-user-role": user.role || "user",
         },
         body: JSON.stringify({
