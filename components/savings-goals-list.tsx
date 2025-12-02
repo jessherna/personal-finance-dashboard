@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -20,7 +20,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Plus, MoreVertical, Edit, Trash2, DollarSign, Laptop, ShieldAlert, Plane, Home, PiggyBank, Target, Car, Heart, GraduationCap, Gamepad2, ShoppingBag } from "lucide-react"
-import { mockSavingsGoals } from "@/lib/data/savings"
+import { useAuth } from "@/contexts/auth-context"
 import { useSavings } from "@/hooks/use-savings"
 import type { SavingsGoal } from "@/lib/types"
 
@@ -52,8 +52,45 @@ const GOAL_COLORS = [
 ]
 
 export function SavingsGoalsList() {
-  const [goals, setGoals] = useState<SavingsGoal[]>(mockSavingsGoals)
+  const { user, isViewingAsUser } = useAuth()
+  const [goals, setGoals] = useState<SavingsGoal[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  
+  useEffect(() => {
+    const fetchGoals = async () => {
+      if (!user) {
+        setIsLoading(false)
+        return
+      }
+
+      try {
+        setIsLoading(true)
+        const effectiveUserId = isViewingAsUser ? 2 : user.id
+        const response = await fetch("/api/savings-goals", {
+          headers: {
+            "x-user-id": String(effectiveUserId),
+            "x-user-role": user.role || "user",
+          },
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          // Handle icon - it might be a string or component
+          setGoals(data)
+        } else {
+          setGoals([])
+        }
+      } catch (error) {
+        console.error("Error fetching savings goals:", error)
+        setGoals([])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchGoals()
+  }, [user, isViewingAsUser])
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isAddFundsDialogOpen, setIsAddFundsDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -511,8 +548,16 @@ export function SavingsGoalsList() {
         </AlertDialogContent>
       </AlertDialog>
       <CardContent className="space-y-6">
-        {goalsWithProgress.map((goal) => {
-          const IconComponent = goal.icon
+        {isLoading ? (
+          <div className="text-center py-8 text-muted-foreground">Loading savings goals...</div>
+        ) : goalsWithProgress.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">No savings goals yet. Add one to get started!</div>
+        ) : (
+          goalsWithProgress.map((goal) => {
+            // Handle icon - it might be a string or component
+            const IconComponent = typeof goal.icon === 'string' 
+              ? PiggyBank // Fallback icon if it's a string
+              : goal.icon
 
           return (
             <div key={goal.id} className="space-y-4 rounded-lg border border-border p-5">
@@ -593,7 +638,8 @@ export function SavingsGoalsList() {
               </div>
             </div>
           )
-        })}
+          })
+        )}
       </CardContent>
     </Card>
   )

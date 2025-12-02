@@ -62,6 +62,7 @@ export default function ImportPage() {
         headers: {
           "Content-Type": "application/json",
           "x-user-id": String(user.id),
+          "x-user-role": user.role || "user",
         },
         body: JSON.stringify({
           transactions: transactionsToImport,

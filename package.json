@@ -6,7 +6,8 @@
     "build": "next build",
     "dev": "next dev",
     "lint": "eslint .",
-    "start": "next start"
+    "start": "next start",
+    "generate:mock-data": "tsx scripts/generate-mock-data-json.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -40,6 +41,7 @@
     "@radix-ui/react-tooltip": "1.1.6",
     "@vercel/analytics": "1.3.1",
     "autoprefixer": "^10.4.20",
+    "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "1.0.4",
@@ -47,6 +49,7 @@
     "embla-carousel-react": "8.5.1",
     "input-otp": "1.4.1",
     "lucide-react": "^0.454.0",
+    "mongoose": "^9.0.0",
     "next": "16.0.3",
     "next-themes": "^0.4.6",
     "pdfjs-dist": "^5.4.449",
@@ -64,6 +67,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.9",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22",
     "@types/pdfjs-dist": "^2.10.377",
     "@types/react": "^19",
@@ -71,6 +75,7 @@
     "baseline-browser-mapping": "^2.8.32",
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
+    "tsx": "^4.21.0",
     "tw-animate-css": "1.3.3",
     "typescript": "^5"
   }

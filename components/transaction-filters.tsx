@@ -22,7 +22,6 @@ import type { SavingsGoal } from "@/lib/types"
 import type { BudgetCategory } from "@/lib/types"
 import type { Account } from "@/lib/types"
 import type { RecurringBill } from "@/lib/types"
-import { mockBudgetCategories } from "@/lib/data/budget"
 
 // Tableau-inspired colors for categories
 const CATEGORY_COLOR_MAP: Record<string, string> = {
@@ -102,7 +101,7 @@ export function TransactionFilters({
   setDateTo,
   savingsGoals = [],
   setSavingsGoals,
-  budgetCategories = mockBudgetCategories,
+  budgetCategories = [],
   accounts = [],
   selectedAccountId,
   recurringBills = [],

@@ -8,11 +8,13 @@ import { HelpCircle, LogOut, Wallet, Menu, X, Users, History, LayoutDashboard } 
 import { Button } from "@/components/ui/button"
 import { navigationItems } from "@/lib/data/navigation"
 import { useAuth } from "@/contexts/auth-context"
+import { useOnboarding } from "@/contexts/onboarding-context"
 
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const { logout, isDev, isAdmin, isViewingAsUser } = useAuth()
+  const { startOnboarding } = useOnboarding()
   const [isOpen, setIsOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
 
@@ -60,6 +62,7 @@ export function Sidebar() {
       {/* Sidebar */}
       <aside
         id="sidebar"
+        data-onboarding="sidebar"
         className={cn(
           "fixed left-0 top-0 z-40 h-screen w-64 border-r border-border bg-sidebar transition-transform duration-300 ease-in-out lg:translate-x-0",
           isOpen || !isMobile ? "translate-x-0" : "-translate-x-full",
@@ -104,6 +107,7 @@ export function Sidebar() {
                     <Link
                       key={item.name}
                       href={item.href}
+                      data-onboarding={item.name === "Import" ? "import-link" : undefined}
                       className={cn(
                         "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2",
                         isActive
@@ -159,6 +163,7 @@ export function Sidebar() {
               variant="ghost"
               className="w-full justify-start gap-3 text-sidebar-foreground/70 hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
               aria-label="Get help"
+              onClick={startOnboarding}
             >
               <HelpCircle className="h-5 w-5" aria-hidden="true" />
               <span>Help</span>

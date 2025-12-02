@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server"
 import type { Transaction } from "@/lib/types/transaction"
-import { mockAllTransactions } from "@/lib/data/transactions"
+import { getDBConnection } from "@/lib/db/mongodb"
+import { createTransactionModel } from "@/lib/models/Transaction"
 
 // POST /api/transactions/import - Import transactions from PDF
 export async function POST(request: Request) {
   try {
-    // In a real app, verify authentication here
     const body = await request.json()
     const { transactions } = body
 
     // Get userId from headers (in a real app, from auth token)
     const userId = parseInt(request.headers.get("x-user-id") || "0", 10)
+    const userRole = request.headers.get("x-user-role") as "user" | "dev" | "admin" | null
 
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -30,14 +31,25 @@ export async function POST(request: Request) {
       }
     }
 
-    // Generate IDs for new transactions
-    const maxId = Math.max(...mockAllTransactions.map((t) => t.id), 0)
-    const newTransactions: Transaction[] = transactions.map((txn, index) => ({
+    // Get database connection based on user role
+    // Users use actual DB, admin/dev use mock DB
+    const connection = await getDBConnection(userRole || undefined)
+    const TransactionModel = createTransactionModel(connection)
+
+    // Get the highest ID to generate new ones
+    const existingTransactions = await TransactionModel.find({ userId }).sort({ id: -1 }).limit(1).lean().exec()
+    const maxId = existingTransactions.length > 0 && existingTransactions[0].id 
+      ? existingTransactions[0].id 
+      : 0
+
+    // Prepare transactions for MongoDB
+    const newTransactions = transactions.map((txn, index) => ({
       id: maxId + index + 1,
+      userId,
       name: txn.name,
       category: txn.category || "Miscellaneous",
       date: txn.date,
-      time: txn.time,
+      time: txn.time || "00:00",
       amount: txn.amount,
       type: txn.type,
       status: txn.status || "completed",
@@ -48,13 +60,30 @@ export async function POST(request: Request) {
       recurringBillId: txn.recurringBillId ?? null,
     }))
 
-    // Add to mock data (in a real app, save to database)
-    mockAllTransactions.push(...newTransactions)
+    // Save to MongoDB
+    await TransactionModel.insertMany(newTransactions)
+
+    // Format response
+    const formattedTransactions: Transaction[] = newTransactions.map((txn) => ({
+      id: txn.id,
+      name: txn.name,
+      category: txn.category,
+      date: txn.date,
+      time: txn.time,
+      amount: txn.amount,
+      type: txn.type,
+      status: txn.status,
+      accountId: txn.accountId,
+      savingsGoalId: txn.savingsGoalId ?? undefined,
+      savingsAmount: txn.savingsAmount,
+      budgetCategoryId: txn.budgetCategoryId,
+      recurringBillId: txn.recurringBillId,
+    }))
 
     return NextResponse.json({
       success: true,
-      count: newTransactions.length,
-      transactions: newTransactions,
+      count: formattedTransactions.length,
+      transactions: formattedTransactions,
     })
   } catch (error) {
     console.error("Import transactions error:", error)

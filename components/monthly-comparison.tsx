@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Area, AreaChart, XAxis, YAxis } from "recharts"
@@ -10,36 +11,144 @@ import {
   ChartLegend,
   ChartLegendContent,
 } from "@/components/ui/chart"
-import { mockMonthlySpending, mockMonthlySpendingByCategory, mockBudgetOverview, mockBudgetCategories } from "@/lib/data/budget"
+import { useAuth } from "@/contexts/auth-context"
 import { average, sum } from "@/lib/utils"
-import { useMemo } from "react"
 import { AlertCircle } from "lucide-react"
+import type { Transaction, BudgetCategory } from "@/lib/types"
 
 export function MonthlyComparison() {
-  const data = mockMonthlySpending
-  const categoryData = mockMonthlySpendingByCategory
-  const avgSpending = Math.round(average(data.map((d) => d.amount)))
-  const totalBudget = mockBudgetOverview.totalBudget
-  const highestMonth = data.reduce((max, curr) => (curr.amount > max.amount ? curr : max))
-  const lowestMonth = data.reduce((min, curr) => (curr.amount < min.amount ? curr : min))
+  const { user, isViewingAsUser } = useAuth()
+  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
-  // Tableau-inspired colors for categories
-  const categoryColors: Record<string, string> = {
-    Transportation: "#4E79A7", // Blue
-    "Food & Dining": "#F28E2C", // Orange
-    Subscriptions: "#AF58BA", // Purple
-    "Rent & Utilities": "#59A14F", // Green
-    Entertainment: "#E15759", // Red
-  }
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!user) {
+        setIsLoading(false)
+        return
+      }
+
+      try {
+        setIsLoading(true)
+        const effectiveUserId = isViewingAsUser ? 2 : user.id
+        const headers = {
+          "x-user-id": String(effectiveUserId),
+          "x-user-role": user.role || "user",
+        }
+
+        const [transactionsRes, budgetCategoriesRes] = await Promise.all([
+          fetch("/api/transactions", { headers }),
+          fetch("/api/budget-categories", { headers }),
+        ])
+
+        if (transactionsRes.ok) {
+          const data = await transactionsRes.json()
+          setTransactions(data)
+        }
+        if (budgetCategoriesRes.ok) {
+          const data = await budgetCategoriesRes.json()
+          setBudgetCategories(data)
+        }
+      } catch (error) {
+        console.error("Error fetching data:", error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [user, isViewingAsUser])
+
+  // Calculate monthly spending data from transactions
+  const { data, categoryData, totalBudget } = useMemo(() => {
+    if (transactions.length === 0 || budgetCategories.length === 0) {
+      return { data: [], categoryData: [], totalBudget: 0 }
+    }
+
+    const now = new Date()
+    const months: string[] = []
+    const monthData: Record<string, number> = {}
+    const categoryMonthData: Record<string, Record<string, number>> = {}
+
+    // Get last 6 months
+    for (let i = 5; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const monthKey = date.toLocaleDateString("en-US", { month: "short", year: "numeric" })
+      months.push(monthKey)
+      monthData[monthKey] = 0
+      categoryMonthData[monthKey] = {}
+    }
+
+    // Process transactions
+    transactions
+      .filter((t) => t.type === "expense")
+      .forEach((t) => {
+        const txnDate = new Date(t.date)
+        const monthKey = txnDate.toLocaleDateString("en-US", { month: "short", year: "numeric" })
+        
+        if (months.includes(monthKey)) {
+          monthData[monthKey] = (monthData[monthKey] || 0) + t.amount
+          
+          if (t.budgetCategoryId) {
+            const category = budgetCategories.find((c) => c.id === t.budgetCategoryId)
+            if (category) {
+              if (!categoryMonthData[monthKey][category.name]) {
+                categoryMonthData[monthKey][category.name] = 0
+              }
+              categoryMonthData[monthKey][category.name] += t.amount
+            }
+          }
+        }
+      })
+
+    const data = months.map((month) => ({
+      month,
+      amount: monthData[month] || 0,
+    }))
+
+    const categoryData = months.map((month) => ({
+      month,
+      ...categoryMonthData[month],
+    }))
+
+    const totalBudget = budgetCategories.reduce((sum, cat) => sum + cat.budget, 0)
+
+    return { data, categoryData, totalBudget }
+  }, [transactions, budgetCategories])
+
+  const avgSpending = data.length > 0 ? Math.round(average(data.map((d) => d.amount))) : 0
+  const highestMonth = data.length > 0 ? data.reduce((max, curr) => (curr.amount > max.amount ? curr : max)) : { month: "", amount: 0 }
+  const lowestMonth = data.length > 0 ? data.reduce((min, curr) => (curr.amount < min.amount ? curr : min)) : { month: "", amount: 0 }
+
+  // Tableau-inspired colors for categories (assign colors to actual categories)
+  const colorPalette = [
+    "#4E79A7", // Blue
+    "#F28E2C", // Orange
+    "#AF58BA", // Purple
+    "#59A14F", // Green
+    "#E15759", // Red
+    "#76B7B2", // Teal
+    "#EDC949", // Yellow
+    "#FF9D9A", // Pink
+  ]
+
+  const categoryColors: Record<string, string> = useMemo(() => {
+    const colors: Record<string, string> = {}
+    budgetCategories.forEach((cat, index) => {
+      colors[cat.name] = cat.color || colorPalette[index % colorPalette.length]
+    })
+    return colors
+  }, [budgetCategories])
 
   // Get budget for each category
-  const categoryBudgets: Record<string, number> = {
-    Transportation: mockBudgetCategories.find((c) => c.name === "Transportation")?.budget || 45000,
-    "Food & Dining": mockBudgetCategories.find((c) => c.name === "Food & Dining")?.budget || 75000,
-    Subscriptions: mockBudgetCategories.find((c) => c.name === "Subscriptions")?.budget || 30000,
-    "Rent & Utilities": mockBudgetCategories.find((c) => c.name === "Rent & Utilities")?.budget || 60000,
-    Entertainment: mockBudgetCategories.find((c) => c.name === "Entertainment")?.budget || 30000,
-  }
+  const categoryBudgets: Record<string, number> = useMemo(() => {
+    const budgets: Record<string, number> = {}
+    budgetCategories.forEach((cat) => {
+      budgets[cat.name] = cat.budget
+    })
+    return budgets
+  }, [budgetCategories])
 
   // Helper function to generate gradient ID
   const getGradientId = (category: string) => {
@@ -48,31 +157,31 @@ export function MonthlyComparison() {
 
   // Convert spending data to percentages vs budget
   const percentageData = useMemo(() => {
+    if (categoryData.length === 0) return []
     return categoryData.map((month) => {
       const result: Record<string, number | string> = { month: month.month }
       Object.keys(categoryColors).forEach((category) => {
-        const spending = month[category as keyof typeof month] as number
-        const budget = categoryBudgets[category]
+        const spending = (month[category as keyof typeof month] as number) || 0
+        const budget = categoryBudgets[category] || 0
         const percentage = budget > 0 ? (spending / budget) * 100 : 0
         result[category] = Math.round(percentage * 100) / 100 // Round to 2 decimal places
       })
       return result
     })
-  }, [categoryData, categoryBudgets])
+  }, [categoryData, categoryBudgets, categoryColors])
 
   // Calculate total spending per month from category data
   const monthlyTotals = useMemo(() => {
-    return categoryData.map((month) => ({
-      month: month.month,
-      total: sum([
-        month.Transportation,
-        month["Food & Dining"],
-        month.Subscriptions,
-        month["Rent & Utilities"],
-        month.Entertainment,
-      ]),
-    }))
-  }, [categoryData])
+    return categoryData.map((month) => {
+      const total = Object.keys(categoryColors).reduce((sum, category) => {
+        return sum + ((month[category as keyof typeof month] as number) || 0)
+      }, 0)
+      return {
+        month: month.month,
+        total,
+      }
+    })
+  }, [categoryData, categoryColors])
 
   // Get months that exceeded budget
   const exceededBudgetMonths = useMemo(() => {
@@ -90,7 +199,33 @@ export function MonthlyComparison() {
       }
     })
     return config
-  }, [])
+  }, [categoryColors])
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Monthly Spending</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-8 text-muted-foreground">Loading monthly data...</div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (data.length === 0 || budgetCategories.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Monthly Spending</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-8 text-muted-foreground">No data available. Add transactions and budget categories to see monthly comparisons.</div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <Card>
@@ -166,41 +301,16 @@ export function MonthlyComparison() {
               align="right"
               wrapperStyle={{ paddingTop: "10px" }}
             />
-            <Area
-              type="monotone"
-              dataKey="Transportation"
-              stackId="1"
-              stroke={categoryColors.Transportation}
-              fill={`url(#${getGradientId("Transportation")})`}
-            />
-            <Area
-              type="monotone"
-              dataKey="Food & Dining"
-              stackId="1"
-              stroke={categoryColors["Food & Dining"]}
-              fill={`url(#${getGradientId("Food & Dining")})`}
-            />
-            <Area
-              type="monotone"
-              dataKey="Subscriptions"
-              stackId="1"
-              stroke={categoryColors.Subscriptions}
-              fill={`url(#${getGradientId("Subscriptions")})`}
-            />
-            <Area
-              type="monotone"
-              dataKey="Rent & Utilities"
-              stackId="1"
-              stroke={categoryColors["Rent & Utilities"]}
-              fill={`url(#${getGradientId("Rent & Utilities")})`}
-            />
-            <Area
-              type="monotone"
-              dataKey="Entertainment"
-              stackId="1"
-              stroke={categoryColors.Entertainment}
-              fill={`url(#${getGradientId("Entertainment")})`}
-            />
+            {Object.keys(categoryColors).map((category) => (
+              <Area
+                key={category}
+                type="monotone"
+                dataKey={category}
+                stackId="1"
+                stroke={categoryColors[category]}
+                fill={`url(#${getGradientId(category)})`}
+              />
+            ))}
           </AreaChart>
         </ChartContainer>
 

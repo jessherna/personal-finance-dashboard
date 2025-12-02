@@ -10,7 +10,8 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart"
 import { AlertCircle, Calendar, DollarSign, Repeat } from "lucide-react"
-import { mockRecurringBills } from "@/lib/data/recurring-bills"
+import { useState, useEffect } from "react"
+import { useAuth } from "@/contexts/auth-context"
 import type { RecurringBill } from "@/lib/types"
 
 interface RecurringBillsKPIProps {
@@ -18,7 +19,43 @@ interface RecurringBillsKPIProps {
 }
 
 export function RecurringBillsKPI({ bills: propsBills }: RecurringBillsKPIProps) {
-  const bills = propsBills || mockRecurringBills
+  const { user, isViewingAsUser } = useAuth()
+  const [bills, setBills] = useState<RecurringBill[]>(propsBills || [])
+  const [isLoading, setIsLoading] = useState(!propsBills)
+
+  useEffect(() => {
+    const fetchBills = async () => {
+      if (propsBills || !user) {
+        setIsLoading(false)
+        return
+      }
+
+      try {
+        setIsLoading(true)
+        const effectiveUserId = isViewingAsUser ? 2 : user.id
+        const response = await fetch("/api/recurring-bills", {
+          headers: {
+            "x-user-id": String(effectiveUserId),
+            "x-user-role": user.role || "user",
+          },
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          setBills(data)
+        } else {
+          setBills([])
+        }
+      } catch (error) {
+        console.error("Error fetching bills:", error)
+        setBills([])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchBills()
+  }, [user, isViewingAsUser, propsBills])
 
   // Calculate KPIs
   const kpis = useMemo(() => {
@@ -147,6 +184,19 @@ export function RecurringBillsKPI({ bills: propsBills }: RecurringBillsKPIProps)
     })
     return config
   }, [chartData])
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Recurring Bills Overview</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-8 text-muted-foreground">Loading bills...</div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <Card>

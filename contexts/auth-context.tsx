@@ -5,7 +5,7 @@ import type { User, LoginInput, CreateUserInput } from "@/lib/types/user"
 
 interface AuthContextType {
   user: User | null
-  isViewingAsUser: boolean // Generic "View As User" mode (uses mock data)
+  isViewingAsUser: boolean // Generic "View As User" mode (perspective mode, data source controlled by toggle)
   isLoading: boolean
   login: (input: LoginInput) => Promise<{ success: boolean; error?: string }>
   signup: (input: CreateUserInput) => Promise<{ success: boolean; error?: string }>

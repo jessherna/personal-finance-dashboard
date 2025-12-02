@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import {
@@ -10,26 +11,93 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { mockBudgetVsExpenseWeekly, mockBudgetVsExpenseMonthly, mockBudgetVsExpenseYearly } from "@/lib/data/budget"
 import { useChartPeriod } from "@/hooks/use-chart-period"
-import { useMemo } from "react"
+import { useAuth } from "@/contexts/auth-context"
+import type { Transaction, BudgetCategory } from "@/lib/types"
 
 export function BudgetChart() {
+  const { user, isViewingAsUser } = useAuth()
   const { period, setPeriod } = useChartPeriod()
+  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   
-  // Get data based on selected period
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!user) {
+        setIsLoading(false)
+        return
+      }
+
+      try {
+        setIsLoading(true)
+        const effectiveUserId = isViewingAsUser ? 2 : user.id
+        const headers = {
+          "x-user-id": String(effectiveUserId),
+          "x-user-role": user.role || "user",
+        }
+
+        const [transactionsRes, budgetRes] = await Promise.all([
+          fetch("/api/transactions", { headers }),
+          fetch("/api/budget-categories", { headers }),
+        ])
+
+        if (transactionsRes.ok) {
+          const data = await transactionsRes.json()
+          setTransactions(data)
+        }
+        if (budgetRes.ok) {
+          const data = await budgetRes.json()
+          setBudgetCategories(data)
+        }
+      } catch (error) {
+        console.error("Error fetching data:", error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [user, isViewingAsUser])
+  
+  // Calculate budget vs expense data from transactions and budget categories
   const data = useMemo(() => {
+    if (transactions.length === 0 || budgetCategories.length === 0) return []
+    
+    const now = new Date()
+    let startDate: Date
+    
     switch (period) {
       case "weekly":
-        return mockBudgetVsExpenseWeekly
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+        break
       case "monthly":
-        return mockBudgetVsExpenseMonthly
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1)
+        break
       case "yearly":
-        return mockBudgetVsExpenseYearly
+        startDate = new Date(now.getFullYear(), 0, 1)
+        break
       default:
-        return mockBudgetVsExpenseMonthly
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1)
     }
-  }, [period])
+    
+    const filteredTransactions = transactions.filter((t) => {
+      const txnDate = new Date(t.date)
+      return txnDate >= startDate && t.type === "expense" && t.budgetCategoryId
+    })
+    
+    return budgetCategories.map((category) => {
+      const expenses = filteredTransactions
+        .filter((t) => t.budgetCategoryId === category.id)
+        .reduce((sum, t) => sum + t.amount, 0)
+      
+      return {
+        category: category.name,
+        budget: category.budget,
+        expense: expenses,
+      }
+    })
+  }, [transactions, budgetCategories, period])
 
   // Tableau-inspired colors for Budget vs Expense
   const budgetColor = "#4E79A7" // Blue - represents planned/budget
@@ -51,7 +119,12 @@ export function BudgetChart() {
         </Select>
       </CardHeader>
       <CardContent>
-        <ChartContainer
+        {isLoading ? (
+          <div className="text-center py-8 text-muted-foreground">Loading budget data...</div>
+        ) : data.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">No budget data available</div>
+        ) : (
+          <ChartContainer
           config={{
             budget: {
               label: "Budget",
@@ -87,6 +160,7 @@ export function BudgetChart() {
             <Bar dataKey="expense" fill={expenseColor} radius={[4, 4, 0, 0]} />
           </BarChart>
         </ChartContainer>
+        )}
       </CardContent>
     </Card>
   )

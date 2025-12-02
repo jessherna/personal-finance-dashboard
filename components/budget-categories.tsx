@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -9,9 +9,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Plus, TrendingUp, Edit } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { mockBudgetCategories } from "@/lib/data/budget"
+import { useAuth } from "@/contexts/auth-context"
 import { useBudget } from "@/hooks/use-budget"
-import type { BudgetCategory } from "@/lib/types"
+import type { BudgetCategory, Transaction } from "@/lib/types"
 
 // Common emoji icons for budget categories
 const CATEGORY_ICONS = [
@@ -42,7 +42,9 @@ const CATEGORY_COLORS = [
 ]
 
 export function BudgetCategories() {
-  const [categories, setCategories] = useState<BudgetCategory[]>(mockBudgetCategories)
+  const { user, isViewingAsUser } = useAuth()
+  const [categories, setCategories] = useState<BudgetCategory[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null)
@@ -435,7 +437,12 @@ export function BudgetCategories() {
         </DialogContent>
       </Dialog>
       <CardContent className="space-y-4 sm:space-y-6">
-        {categoriesWithAnalysis.map((category) => {
+        {isLoading ? (
+          <div className="text-center py-8 text-muted-foreground">Loading budget categories...</div>
+        ) : categoriesWithAnalysis.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">No budget categories yet. Add one to get started!</div>
+        ) : (
+          categoriesWithAnalysis.map((category) => {
           return (
             <div key={category.id} className="space-y-3">
               <div className="flex items-center justify-between gap-2">
@@ -491,7 +498,8 @@ export function BudgetCategories() {
               </div>
             </div>
           )
-        })}
+          })
+        )}
       </CardContent>
     </Card>
   )

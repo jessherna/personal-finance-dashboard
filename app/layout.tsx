@@ -4,6 +4,8 @@ import { Inter } from "next/font/google"
 import "./globals.css"
 import { AuthProvider } from "@/contexts/auth-context"
 import { NotificationProvider } from "@/contexts/notification-context"
+import { OnboardingProvider } from "@/contexts/onboarding-context"
+import { OnboardingTour } from "@/components/onboarding-tour"
 import { Toaster } from "@/components/ui/sonner"
 import { PDFWorkerInit } from "@/components/pdf-worker-init"
 
@@ -52,10 +54,13 @@ export default function RootLayout({
       <body className={`${inter.className} antialiased`}>
         <PDFWorkerInit />
         <AuthProvider>
-          <NotificationProvider>
-            {children}
-            <Toaster />
-          </NotificationProvider>
+          <OnboardingProvider>
+            <NotificationProvider>
+              {children}
+              <OnboardingTour />
+              <Toaster />
+            </NotificationProvider>
+          </OnboardingProvider>
         </AuthProvider>
       </body>
     </html>

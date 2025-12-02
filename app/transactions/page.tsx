@@ -1,26 +1,25 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Sidebar } from "@/components/sidebar"
 import { Header } from "@/components/header"
 import { TransactionList } from "@/components/transaction-list"
 import { TransactionFilters } from "@/components/transaction-filters"
 import { TransactionStats } from "@/components/transaction-stats"
-import { mockAllTransactions } from "@/lib/data/transactions"
-import { mockSavingsGoals } from "@/lib/data/savings"
-import { mockAccounts } from "@/lib/data/accounts"
-import { mockRecurringBills } from "@/lib/data/recurring-bills"
+import { useAuth } from "@/contexts/auth-context"
 import type { Transaction } from "@/lib/types"
 import type { SavingsGoal } from "@/lib/types"
 import type { Account } from "@/lib/types"
 import type { RecurringBill } from "@/lib/types"
 
 export default function TransactionsPage() {
-  const [transactions, setTransactions] = useState<Transaction[]>(mockAllTransactions)
+  const { user, isViewingAsUser } = useAuth()
+  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const [customCategories, setCustomCategories] = useState<Record<string, string>>({})
-  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>(mockSavingsGoals)
-  const [accounts, setAccounts] = useState<Account[]>(mockAccounts)
-  const [bills, setBills] = useState<RecurringBill[]>(mockRecurringBills)
+  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([])
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [bills, setBills] = useState<RecurringBill[]>([])
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState<string>("all")
@@ -31,6 +30,93 @@ export default function TransactionsPage() {
   const [selectedStatus, setSelectedStatus] = useState<string>("all")
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
+
+  // Fetch all data from API
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!user) {
+        setIsLoading(false)
+        return
+      }
+
+      try {
+        setIsLoading(true)
+        // Use user ID 2 when viewing as user (mock data), otherwise use actual user ID
+        const effectiveUserId = isViewingAsUser ? 2 : user.id
+        const headers = {
+          "x-user-id": String(effectiveUserId),
+          "x-user-role": user.role || "user",
+        }
+        
+        // Fetch all data in parallel
+        const [transactionsRes, accountsRes, savingsGoalsRes, billsRes] = await Promise.all([
+          fetch("/api/transactions", { headers }),
+          fetch("/api/accounts", { headers }),
+          fetch("/api/savings-goals", { headers }),
+          fetch("/api/recurring-bills", { headers }),
+        ])
+
+        if (transactionsRes.ok) {
+          const data = await transactionsRes.json()
+          setTransactions(data)
+        } else {
+          setTransactions([])
+        }
+
+        if (accountsRes.ok) {
+          const data = await accountsRes.json()
+          setAccounts(data)
+        } else {
+          setAccounts([])
+        }
+
+        if (savingsGoalsRes.ok) {
+          const data = await savingsGoalsRes.json()
+          setSavingsGoals(data)
+        } else {
+          setSavingsGoals([])
+        }
+
+        if (billsRes.ok) {
+          const data = await billsRes.json()
+          setBills(data)
+        } else {
+          setBills([])
+        }
+      } catch (error) {
+        console.error("Error fetching data:", error)
+        setTransactions([])
+        setAccounts([])
+        setSavingsGoals([])
+        setBills([])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [user, isViewingAsUser])
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen">
+        <Sidebar />
+        <div className="flex-1 lg:pl-64">
+          <Header 
+            title="Transactions" 
+            selectedAccountId={selectedAccountId}
+            onAccountSelect={setSelectedAccountId}
+            accounts={accounts}
+          />
+          <main className="p-4 sm:p-6 lg:p-8">
+            <div className="flex items-center justify-center h-64">
+              <p className="text-muted-foreground">Loading transactions...</p>
+            </div>
+          </main>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex min-h-screen">

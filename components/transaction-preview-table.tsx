@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   Table,
   TableBody,
@@ -17,11 +17,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowUpRight, ArrowDownRight } from "lucide-react"
 import type { ExtractedTransaction } from "@/lib/utils/pdf-parser"
 import { formatDate } from "@/lib/utils/date"
-import { mockAccounts } from "@/lib/data/accounts"
-import { mockBudgetCategories } from "@/lib/data/budget"
-import { mockSavingsGoals } from "@/lib/data/savings"
-import { mockRecurringBills } from "@/lib/data/recurring-bills"
-import type { TransactionCategory, TransactionStatus } from "@/lib/types"
+import { useAuth } from "@/contexts/auth-context"
+import type { TransactionCategory, TransactionStatus, Account, BudgetCategory, SavingsGoal, RecurringBill } from "@/lib/types"
 
 const DEFAULT_CATEGORIES: TransactionCategory[] = [
   "Salary",
@@ -44,6 +41,13 @@ export function TransactionPreviewTable({
   onConfirm,
   onCancel,
 }: TransactionPreviewTableProps) {
+  const { user, isViewingAsUser } = useAuth()
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>([])
+  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([])
+  const [recurringBills, setRecurringBills] = useState<RecurringBill[]>([])
+  const [isLoadingData, setIsLoadingData] = useState(true)
+  
   const [selectedIds, setSelectedIds] = useState<Set<number>>(
     new Set(transactions.map((_, index) => index))
   )
@@ -103,9 +107,58 @@ export function TransactionPreviewTable({
     return isNaN(parsed) ? 0 : Math.round(parsed * 100)
   }
 
-  const activeAccounts = mockAccounts.filter((a) => a.isActive)
-  const activeSavingsGoals = mockSavingsGoals
-  const activeRecurringBills = mockRecurringBills.filter((b) => b.isActive)
+  // Fetch data from API
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!user) {
+        setIsLoadingData(false)
+        return
+      }
+
+      try {
+        setIsLoadingData(true)
+        const effectiveUserId = isViewingAsUser ? 2 : user.id
+        const headers = {
+          "x-user-id": String(effectiveUserId),
+          "x-user-role": user.role || "user",
+        }
+
+        const [accountsRes, budgetCategoriesRes, savingsGoalsRes, billsRes] = await Promise.all([
+          fetch("/api/accounts", { headers }),
+          fetch("/api/budget-categories", { headers }),
+          fetch("/api/savings-goals", { headers }),
+          fetch("/api/recurring-bills", { headers }),
+        ])
+
+        if (accountsRes.ok) {
+          const data = await accountsRes.json()
+          setAccounts(data)
+        }
+        if (budgetCategoriesRes.ok) {
+          const data = await budgetCategoriesRes.json()
+          setBudgetCategories(data)
+        }
+        if (savingsGoalsRes.ok) {
+          const data = await savingsGoalsRes.json()
+          setSavingsGoals(data)
+        }
+        if (billsRes.ok) {
+          const data = await billsRes.json()
+          setRecurringBills(data)
+        }
+      } catch (error) {
+        console.error("Error fetching data:", error)
+      } finally {
+        setIsLoadingData(false)
+      }
+    }
+
+    fetchData()
+  }, [user, isViewingAsUser])
+
+  const activeAccounts = accounts.filter((a) => a.isActive)
+  const activeSavingsGoals = savingsGoals
+  const activeRecurringBills = recurringBills.filter((b) => b.isActive)
 
   return (
     <div className="space-y-4">
@@ -231,7 +284,7 @@ export function TransactionPreviewTable({
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="none">No Budget</SelectItem>
-                        {mockBudgetCategories.map((category) => (
+                        {budgetCategories.map((category) => (
                           <SelectItem key={category.id} value={String(category.id)}>
                             <div className="flex items-center gap-2">
                               <span>{category.icon}</span>

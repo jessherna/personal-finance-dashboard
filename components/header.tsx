@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
-import { mockAccounts } from "@/lib/data/accounts"
 import { useAuth } from "@/contexts/auth-context"
 import { UserSwitcher } from "@/components/user-switcher"
 import { NotificationDropdown } from "@/components/notification-dropdown"
@@ -23,7 +22,7 @@ interface HeaderProps {
 export function Header({ title, selectedAccountId, onAccountSelect, accounts: propsAccounts }: HeaderProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const { user, isViewingAsUser, canViewAs, effectiveUser } = useAuth()
-  const accounts = propsAccounts || mockAccounts
+  const accounts = propsAccounts || []
   const selectedAccount = selectedAccountId ? accounts.find((a) => a.id === selectedAccountId) : null
   
   // When viewing as a user, show account selector (using mock data)
@@ -45,7 +44,10 @@ export function Header({ title, selectedAccountId, onAccountSelect, accounts: pr
   const userAvatar = user?.avatar || "/placeholder-user.jpg"
 
   return (
-    <header className="sticky top-0 z-10 flex h-16 items-center justify-between gap-4 border-b border-border bg-background px-4 sm:px-6 lg:px-8">
+    <header 
+      data-onboarding="header"
+      className="sticky top-0 z-10 flex h-16 items-center justify-between gap-4 border-b border-border bg-background px-4 sm:px-6 lg:px-8"
+    >
       <h1 className="text-xl font-semibold text-foreground sm:text-2xl">{title}</h1>
 
       <div className="flex items-center gap-2 sm:gap-4">

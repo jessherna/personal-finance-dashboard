@@ -1,0 +1,57 @@
+[
+  {
+    "_id": "1",
+    "userId": 2,
+    "type": "budget",
+    "title": "Budget Alert",
+    "message": "You've exceeded your Food budget by $50.00",
+    "isRead": false,
+    "createdAt": "2025-12-01T20:24:43.384Z",
+    "link": "/budget",
+    "updatedAt": "2025-12-01T22:24:43.396Z"
+  },
+  {
+    "_id": "2",
+    "userId": 2,
+    "type": "savings",
+    "title": "Savings Milestone",
+    "message": "Congratulations! You've reached 50% of your vacation savings goal",
+    "isRead": false,
+    "createdAt": "2025-12-01T17:24:43.386Z",
+    "link": "/",
+    "updatedAt": "2025-12-01T22:24:43.396Z"
+  },
+  {
+    "_id": "3",
+    "userId": 2,
+    "type": "transaction",
+    "title": "New Transaction",
+    "message": "A new transaction of $125.00 has been added to your account",
+    "isRead": true,
+    "createdAt": "2025-11-30T22:24:43.386Z",
+    "link": "/transactions",
+    "updatedAt": "2025-12-01T22:24:43.396Z"
+  },
+  {
+    "_id": "4",
+    "userId": 3,
+    "type": "warning",
+    "title": "Low Balance",
+    "message": "Your checking account balance is below $100",
+    "isRead": false,
+    "createdAt": "2025-12-01T19:24:43.386Z",
+    "link": "/accounts",
+    "updatedAt": "2025-12-01T22:24:43.396Z"
+  },
+  {
+    "_id": "5",
+    "userId": 2,
+    "type": "info",
+    "title": "Bill Reminder",
+    "message": "Your electricity bill is due in 3 days",
+    "isRead": false,
+    "createdAt": "2025-12-01T21:24:43.386Z",
+    "link": "/bills",
+    "updatedAt": "2025-12-01T22:24:43.396Z"
+  }
+]

@@ -1,32 +1,94 @@
 "use client"
 
+import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Cell, Pie, PieChart } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { mockSpendingDataWeekly, mockSpendingDataMonthly, mockSpendingDataYearly } from "@/lib/data/dashboard"
 import { useChartPeriod } from "@/hooks/use-chart-period"
+import { useAuth } from "@/contexts/auth-context"
 import { sum } from "@/lib/utils"
-import { useMemo } from "react"
+import type { Transaction } from "@/lib/types"
 
 export function SpendingChart() {
+  const { user, isViewingAsUser } = useAuth()
   const { period, setPeriod } = useChartPeriod()
+  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   
-  // Get data based on selected period
+  useEffect(() => {
+    const fetchTransactions = async () => {
+      if (!user) {
+        setIsLoading(false)
+        return
+      }
+
+      try {
+        setIsLoading(true)
+        const effectiveUserId = isViewingAsUser ? 2 : user.id
+        const response = await fetch("/api/transactions", {
+          headers: {
+            "x-user-id": String(effectiveUserId),
+            "x-user-role": user.role || "user",
+          },
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          setTransactions(data)
+        } else {
+          setTransactions([])
+        }
+      } catch (error) {
+        console.error("Error fetching transactions:", error)
+        setTransactions([])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchTransactions()
+  }, [user, isViewingAsUser])
+  
+  // Calculate spending data from transactions based on period
   const spendingData = useMemo(() => {
+    if (transactions.length === 0) return []
+    
+    const now = new Date()
+    let startDate: Date
+    
     switch (period) {
       case "weekly":
-        return mockSpendingDataWeekly
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+        break
       case "monthly":
-        return mockSpendingDataMonthly
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1)
+        break
       case "yearly":
-        return mockSpendingDataYearly
+        startDate = new Date(now.getFullYear(), 0, 1)
+        break
       default:
-        return mockSpendingDataMonthly
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1)
     }
-  }, [period])
+    
+    const filteredTransactions = transactions.filter((t) => {
+      const txnDate = new Date(t.date)
+      return txnDate >= startDate && t.type === "expense"
+    })
+    
+    // Group by category
+    const categoryMap = new Map<string, number>()
+    filteredTransactions.forEach((t) => {
+      const current = categoryMap.get(t.category) || 0
+      categoryMap.set(t.category, current + t.amount)
+    })
+    
+    return Array.from(categoryMap.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+  }, [transactions, period])
   
-  const totalExpense = sum(spendingData.map((item) => item.value))
+  const totalExpense = spendingData.length > 0 ? sum(spendingData.map((item) => item.value)) : 0
 
   // Tableau-inspired vibrant colors for the pie chart
   const chartColors = [
@@ -62,7 +124,12 @@ export function SpendingChart() {
         </Select>
       </CardHeader>
       <CardContent>
-        <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start lg:gap-8">
+        {isLoading ? (
+          <div className="text-center py-8 text-muted-foreground">Loading spending data...</div>
+        ) : spendingData.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">No spending data available</div>
+        ) : (
+          <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start lg:gap-8">
           <div className="relative h-64 w-64 sm:h-72 sm:w-72 lg:h-80 lg:w-80 flex-shrink-0">
             <ChartContainer
               config={{
@@ -119,6 +186,7 @@ export function SpendingChart() {
             ))}
           </div>
         </div>
+        )}
       </CardContent>
     </Card>
   )

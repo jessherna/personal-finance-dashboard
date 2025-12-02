@@ -1,14 +1,58 @@
+"use client"
+
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ArrowUpRight, ArrowDownRight, MoreHorizontal } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { mockRecentTransactions } from "@/lib/data/transactions"
+import { useAuth } from "@/contexts/auth-context"
 import { CATEGORY_COLORS } from "@/lib/constants/categories"
+import type { Transaction } from "@/lib/types"
 
 export function RecentTransactions() {
-  const transactions = mockRecentTransactions
+  const { user, isViewingAsUser } = useAuth()
+  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchTransactions = async () => {
+      if (!user) {
+        setIsLoading(false)
+        return
+      }
+
+      try {
+        setIsLoading(true)
+        const effectiveUserId = isViewingAsUser ? 2 : user.id
+        const response = await fetch("/api/transactions", {
+          headers: {
+            "x-user-id": String(effectiveUserId),
+            "x-user-role": user.role || "user",
+          },
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          // Sort by date (newest first) and take top 5
+          const sorted = data.sort((a: Transaction, b: Transaction) => 
+            new Date(b.date).getTime() - new Date(a.date).getTime()
+          )
+          setTransactions(sorted.slice(0, 5))
+        } else {
+          setTransactions([])
+        }
+      } catch (error) {
+        console.error("Error fetching transactions:", error)
+        setTransactions([])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchTransactions()
+  }, [user, isViewingAsUser])
 
   return (
     <Card>
@@ -19,8 +63,13 @@ export function RecentTransactions() {
         </Button>
       </CardHeader>
       <CardContent>
-        <div className="space-y-3 sm:space-y-4">
-          {transactions.map((transaction) => (
+        {isLoading ? (
+          <div className="text-center py-8 text-muted-foreground">Loading transactions...</div>
+        ) : transactions.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">No recent transactions</div>
+        ) : (
+          <div className="space-y-3 sm:space-y-4">
+            {transactions.map((transaction) => (
             <div
               key={transaction.id}
               className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4"
@@ -77,8 +126,9 @@ export function RecentTransactions() {
                 </div>
               </div>
             </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   )

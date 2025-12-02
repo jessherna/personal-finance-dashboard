@@ -154,7 +154,7 @@ export default function RestorePointsPage() {
         method: "POST",
         headers: {
           "x-user-id": String(user.id),
-        }),
+        },
       })
 
       if (response.ok) {

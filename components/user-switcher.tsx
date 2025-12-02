@@ -23,7 +23,7 @@ export function UserSwitcher() {
       toast.success("Stopped viewing as user")
     } else {
       toggleViewAsUser()
-      toast.success("Now viewing as user (mock data)")
+      toast.success("Now viewing as user")
     }
     setIsOpen(false)
   }
@@ -71,7 +71,7 @@ export function UserSwitcher() {
           <DialogHeader>
             <DialogTitle>View As User</DialogTitle>
             <DialogDescription>
-              View the application from a user's perspective using mock data. This allows you to see what regular users experience without accessing their actual data.
+              View the application from a user's perspective. The data source (demo or actual) is controlled by the "Data Source" toggle in the header.
             </DialogDescription>
           </DialogHeader>
 
@@ -84,7 +84,7 @@ export function UserSwitcher() {
                     <div>
                       <p className="font-medium">Currently viewing as User</p>
                       <p className="text-sm text-muted-foreground">
-                        You are viewing the application with mock data
+                        You are viewing the application from a user's perspective
                       </p>
                     </div>
                   </div>
@@ -97,7 +97,7 @@ export function UserSwitcher() {
                   <div>
                     <p className="font-medium">View as User Mode</p>
                     <p className="text-sm text-muted-foreground">
-                      Switch to view the application with mock user data
+                      Switch to view the application from a user's perspective
                     </p>
                   </div>
                 </div>

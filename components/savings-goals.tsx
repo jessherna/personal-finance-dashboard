@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus, Laptop, ShieldAlert, Plane, Home, PiggyBank, Target, Car, Heart, GraduationCap, Gamepad2, ShoppingBag } from "lucide-react"
-import { mockSavingsGoals } from "@/lib/data/savings"
+import { useAuth } from "@/contexts/auth-context"
 import { useSavings } from "@/hooks/use-savings"
 import type { SavingsGoal } from "@/lib/types"
 
@@ -41,8 +41,45 @@ const GOAL_COLORS = [
 ]
 
 export function SavingsGoals() {
-  const [goals, setGoals] = useState<SavingsGoal[]>(mockSavingsGoals.slice(0, 2))
+  const { user, isViewingAsUser } = useAuth()
+  const [goals, setGoals] = useState<SavingsGoal[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  
+  useEffect(() => {
+    const fetchGoals = async () => {
+      if (!user) {
+        setIsLoading(false)
+        return
+      }
+
+      try {
+        setIsLoading(true)
+        const effectiveUserId = isViewingAsUser ? 2 : user.id
+        const response = await fetch("/api/savings-goals", {
+          headers: {
+            "x-user-id": String(effectiveUserId),
+            "x-user-role": user.role || "user",
+          },
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          // Convert icon strings back to components if needed, or use as-is
+          setGoals(data.slice(0, 2))
+        } else {
+          setGoals([])
+        }
+      } catch (error) {
+        console.error("Error fetching savings goals:", error)
+        setGoals([])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchGoals()
+  }, [user, isViewingAsUser])
   const [newGoal, setNewGoal] = useState({
     name: "",
     target: "",
@@ -208,8 +245,16 @@ export function SavingsGoals() {
         </Dialog>
       </CardHeader>
       <CardContent className="space-y-4 sm:space-y-6">
-        {goalsWithProgress.map((goal) => {
-          const IconComponent = goal.icon
+        {isLoading ? (
+          <div className="text-center py-8 text-muted-foreground">Loading savings goals...</div>
+        ) : goalsWithProgress.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">No savings goals yet</div>
+        ) : (
+          goalsWithProgress.map((goal) => {
+            // Handle icon - it might be a string or component
+            const IconComponent = typeof goal.icon === 'string' 
+              ? PiggyBank // Fallback icon if it's a string
+              : goal.icon
           return (
             <div key={goal.id} className="space-y-3">
               <div className="flex items-center justify-between gap-2">
@@ -244,7 +289,8 @@ export function SavingsGoals() {
               </div>
             </div>
           )
-        })}
+          })
+        )}
       </CardContent>
     </Card>
   )
