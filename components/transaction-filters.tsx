@@ -16,11 +16,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Label } from "@/components/ui/label"
-import { Search, SlidersHorizontal, Download, Plus, X } from "lucide-react"
+import { Search, SlidersHorizontal, Download, Plus, X, Sparkles } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
 import { formatCurrencyFromCents } from "@/lib/utils/format"
 import { getCurrentDateInToronto } from "@/lib/utils/date"
 import { toast } from "sonner"
+import { suggestCategoryFromPastTransactions } from "@/lib/utils/category-suggestion"
 import type { Transaction, TransactionType, TransactionStatus, TransactionCategory } from "@/lib/types"
 import type { SavingsGoal } from "@/lib/types"
 import type { BudgetCategory } from "@/lib/types"
@@ -122,6 +123,8 @@ export function TransactionFilters({
   const [categoryToDelete, setCategoryToDelete] = useState<string | null>(null)
   const [newCategoryName, setNewCategoryName] = useState("")
   const [newCategoryColor, setNewCategoryColor] = useState("#4E79A7")
+  const [suggestedCategory, setSuggestedCategory] = useState<TransactionCategory | null>(null)
+  const [isCategorySuggested, setIsCategorySuggested] = useState(false)
   const [newTransaction, setNewTransaction] = useState({
     name: "",
     category: "Miscellaneous" as TransactionCategory,
@@ -137,7 +140,7 @@ export function TransactionFilters({
     recurringBillId: null as number | null | string,
   })
 
-  // Set date and time when dialog opens
+  // Set date and time when dialog opens, reset suggestion state
   useEffect(() => {
     if (isAddDialogOpen) {
       const now = getCurrentDateInToronto()
@@ -146,8 +149,56 @@ export function TransactionFilters({
         date: now.toISOString().split("T")[0],
         time: now.toTimeString().slice(0, 5),
       }))
+      setSuggestedCategory(null)
+      setIsCategorySuggested(false)
     }
   }, [isAddDialogOpen])
+
+  // Auto-suggest category based on past transactions with similar names
+  // Skip suggestion if recurring bill is selected (it already sets the category)
+  useEffect(() => {
+    if (
+      isAddDialogOpen && 
+      newTransaction.name.trim().length >= 3 && 
+      transactions.length > 0 &&
+      !newTransaction.recurringBillId // Don't suggest if recurring bill is selected
+    ) {
+      const suggested = suggestCategoryFromPastTransactions(
+        newTransaction.name,
+        transactions,
+        0.5 // 50% confidence threshold
+      )
+      
+      if (suggested && suggested !== newTransaction.category) {
+        setSuggestedCategory(suggested)
+        setIsCategorySuggested(true)
+      } else {
+        setSuggestedCategory(null)
+        setIsCategorySuggested(false)
+      }
+    } else {
+      setSuggestedCategory(null)
+      setIsCategorySuggested(false)
+    }
+  }, [isAddDialogOpen, newTransaction.name, newTransaction.recurringBillId, transactions])
+
+  // Auto-apply suggested category if user hasn't manually changed it
+  // Only apply if category is still the default and we have a confident suggestion
+  useEffect(() => {
+    if (
+      isCategorySuggested && 
+      suggestedCategory && 
+      newTransaction.category === "Miscellaneous" &&
+      newTransaction.name.trim().length >= 3
+    ) {
+      // Only auto-apply if category is still the default
+      setNewTransaction((prev) => ({
+        ...prev,
+        category: suggestedCategory,
+      }))
+      setIsCategorySuggested(false) // Reset flag after applying
+    }
+  }, [suggestedCategory, isCategorySuggested, newTransaction.category, newTransaction.name])
 
   // Auto-suggest budget category based on transaction name or category
   useEffect(() => {
@@ -629,6 +680,10 @@ export function TransactionFilters({
           recurringBillId: null,
         })
         
+        // Reset suggestion state
+        setSuggestedCategory(null)
+        setIsCategorySuggested(false)
+        
         setIsAddDialogOpen(false)
         toast.success("Transaction created successfully")
       } else {
@@ -853,10 +908,21 @@ export function TransactionFilters({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="transaction-category">Category</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="transaction-category">Category</Label>
+                  {suggestedCategory && suggestedCategory === newTransaction.category && (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Sparkles className="h-3 w-3" />
+                      <span>Auto-suggested from past transactions</span>
+                    </div>
+                  )}
+                </div>
                 <Select
                   value={newTransaction.category}
-                  onValueChange={(value: TransactionCategory) => setNewTransaction({ ...newTransaction, category: value })}
+                  onValueChange={(value: TransactionCategory) => {
+                    setNewTransaction({ ...newTransaction, category: value })
+                    setIsCategorySuggested(false) // Clear suggestion flag when manually changed
+                  }}
                 >
                   <SelectTrigger
                     id="transaction-category"

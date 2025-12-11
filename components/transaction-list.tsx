@@ -901,7 +901,9 @@ export function TransactionList({
 
     setTransactions((prev) =>
       prev.map((transaction) =>
-        transaction.id === transactionId ? { ...transaction, savingsGoalId: newSavingsGoalId } : transaction,
+        transaction.id === transactionId 
+          ? { ...transaction, savingsGoalId: newSavingsGoalId === null ? undefined : newSavingsGoalId } 
+          : transaction,
       ),
     )
 

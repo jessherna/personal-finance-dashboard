@@ -13,11 +13,35 @@ import { getCurrentDateInToronto } from "@/lib/utils/date"
 import { formatCurrencyFromCents } from "@/lib/utils/format"
 import type { Transaction } from "@/lib/types"
 
+// Tableau-inspired colors for categories
+const CATEGORY_COLOR_MAP: Record<string, string> = {
+  Salary: "#59A14F", // Green
+  Transportation: "#4E79A7", // Blue
+  Food: "#F28E2C", // Orange
+  Subscription: "#AF58BA", // Purple
+  Rent: "#E15759", // Red
+  Miscellaneous: "#76B7B2", // Teal
+  Entertainment: "#EDC949", // Yellow
+}
+
+// Extended color palette for additional categories
+const EXTENDED_COLORS = [
+  "#FF9D9A", // Pink
+  "#9C755F", // Brown
+  "#BAB0AC", // Gray
+  "#17BECF", // Cyan
+  "#BCBD22", // Olive
+  "#9467BD", // Dark Purple
+  "#8C564B", // Dark Brown
+  "#E377C2", // Light Pink
+]
+
 export function SpendingChart() {
   const { user, isViewingAsUser } = useAuth()
   const { period, setPeriod } = useChartPeriod("all")
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [accounts, setAccounts] = useState<any[]>([])
+  const [customCategories, setCustomCategories] = useState<Record<string, string>>({})
   const [isLoading, setIsLoading] = useState(true)
   
   useEffect(() => {
@@ -35,9 +59,10 @@ export function SpendingChart() {
           "x-user-role": user.role || "user",
         }
         
-        const [transactionsRes, accountsRes] = await Promise.all([
+        const [transactionsRes, accountsRes, customCategoriesRes] = await Promise.all([
           fetch("/api/transactions", { headers }),
           fetch("/api/accounts", { headers }),
+          fetch("/api/custom-categories", { headers }),
         ])
 
         if (transactionsRes.ok) {
@@ -53,10 +78,18 @@ export function SpendingChart() {
         } else {
           setAccounts([])
         }
+
+        if (customCategoriesRes.ok) {
+          const categoriesData = await customCategoriesRes.json()
+          setCustomCategories(categoriesData)
+        } else {
+          setCustomCategories({})
+        }
       } catch (error) {
         console.error("Error fetching data:", error)
         setTransactions([])
         setAccounts([])
+        setCustomCategories({})
       } finally {
         setIsLoading(false)
       }
@@ -138,23 +171,27 @@ export function SpendingChart() {
   
   const totalExpense = spendingData.length > 0 ? sum(spendingData.map((item) => item.value)) : 0
 
-  // Tableau-inspired vibrant colors for the pie chart
-  const chartColors = [
-    "#4E79A7", // Blue - Transportation
-    "#F28E2C", // Orange - Food
-    "#AF58BA", // Purple - Subscription
-    "#59A14F", // Green - Rent
-    "#E15759", // Red - Miscellaneous
-  ]
+  // Merge default and custom category colors
+  const categoryColorMap = { ...CATEGORY_COLOR_MAP, ...customCategories }
+
+  // Function to get color for a category
+  const getCategoryColor = (categoryName: string, index: number): string => {
+    // First check if we have a predefined color
+    if (categoryColorMap[categoryName]) {
+      return categoryColorMap[categoryName]
+    }
+    // If not, use extended color palette (cycling through)
+    return EXTENDED_COLORS[index % EXTENDED_COLORS.length]
+  }
 
   // Map data with actual colors and calculate percentages
   const dataWithColors = useMemo(() => {
     return spendingData.map((item, index) => ({
       ...item,
-      color: chartColors[index],
+      color: getCategoryColor(item.name, index),
       percentage: ((item.value / totalExpense) * 100).toFixed(0),
     }))
-  }, [spendingData, totalExpense])
+  }, [spendingData, totalExpense, customCategories])
 
   return (
     <Card>
@@ -182,13 +219,13 @@ export function SpendingChart() {
             {/* Pie Chart - On top */}
             <div className="relative h-64 w-64 sm:h-72 sm:w-72 lg:h-80 lg:w-80 flex-shrink-0">
               <ChartContainer
-                config={{
-                  transportation: { label: "Transportation", color: chartColors[0] },
-                  food: { label: "Food", color: chartColors[1] },
-                  subscription: { label: "Subscription", color: chartColors[2] },
-                  rent: { label: "Rent", color: chartColors[3] },
-                  miscellaneous: { label: "Miscellaneous", color: chartColors[4] },
-                }}
+                config={dataWithColors.reduce((acc, item) => {
+                  acc[item.name.toLowerCase().replace(/\s+/g, "_")] = {
+                    label: item.name,
+                    color: item.color,
+                  }
+                  return acc
+                }, {} as Record<string, { label: string; color: string }>)}
                 className="w-full h-full"
               >
                 <PieChart>

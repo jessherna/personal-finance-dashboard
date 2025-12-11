@@ -6,6 +6,10 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  turbopack: {
+    // Explicitly set project root so Turbopack can locate Next package
+    root: process.cwd(),
+  },
 }
 
 export default nextConfig

@@ -61,3 +61,7 @@ node_modules
 
 # hide mongodb seed data
 mongodb-seed-data
+
+# markdown files
+MONGODB_SETUP.md
+MONGODB_MIGRATION_STATUS.md

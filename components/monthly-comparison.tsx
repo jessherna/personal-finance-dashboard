@@ -174,7 +174,10 @@ export function MonthlyComparison() {
   const monthlyTotals = useMemo(() => {
     return categoryData.map((month) => {
       const total = Object.keys(categoryColors).reduce((sum, category) => {
-        return sum + ((month[category as keyof typeof month] as number) || 0)
+        const value = month[category as keyof typeof month]
+        // Skip if value is the month string or undefined, otherwise treat as number
+        if (value === month.month || value === undefined) return sum
+        return sum + (typeof value === "number" ? value : 0)
       }, 0)
       return {
         month: month.month,
@@ -205,7 +208,9 @@ export function MonthlyComparison() {
     return categoryData.map((month) => {
       const result: Record<string, number | string> = { month: month.month }
       Object.keys(categoryColors).forEach((category) => {
-        const spending = (month[category as keyof typeof month] as number) || 0
+        const value = month[category as keyof typeof month]
+        // Ensure we're working with a number, not the month string
+        const spending = typeof value === "number" ? value : 0
         const budget = categoryBudgets[category] || 0
         const percentage = budget > 0 ? (spending / budget) * 100 : 0
         result[category] = Math.round(percentage * 100) / 100 // Round to 2 decimal places
