@@ -12,6 +12,8 @@ export interface IUser extends Document {
   avatar?: string
   password?: string // Hashed password
   hasCompletedOnboarding?: boolean
+  resetToken?: string
+  resetTokenExpires?: Date
 }
 
 const UserSchema = new Schema<IUser>(
@@ -24,6 +26,8 @@ const UserSchema = new Schema<IUser>(
     avatar: { type: String },
     password: { type: String }, // Hashed password
     hasCompletedOnboarding: { type: Boolean, default: false },
+    resetToken: { type: String },
+    resetTokenExpires: { type: Date },
   },
   {
     timestamps: true,

@@ -5,6 +5,23 @@ const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017"
 const MOCK_DB_NAME = process.env.MOCK_DB_NAME || "personal-finance-mock"
 const REAL_DB_NAME = process.env.REAL_DB_NAME || "personal-finance"
 
+function buildDbUri(baseUri: string, dbName: string): string {
+  // Split query to reattach later
+  const [uriWithoutQuery, query] = baseUri.split("?")
+  const normalized = uriWithoutQuery.replace(/\/+$/, "")
+
+  // Capture host and optional path
+  const match = normalized.match(/^(mongodb(?:\+srv)?:\/\/[^/]+)(?:\/(.*))?$/)
+  const root = match ? match[1] : normalized
+  const existingPath = match && match[2] ? match[2] : ""
+
+  // If URI already includes a db path, keep it; otherwise append provided dbName
+  const path = existingPath.length > 0 ? existingPath : dbName
+  const rebuilt = `${root}/${path}`
+
+  return query ? `${rebuilt}?${query}` : rebuilt
+}
+
 // Connection state
 let mockConnection: mongoose.Connection | null = null
 let realConnection: mongoose.Connection | null = null
@@ -19,9 +36,7 @@ export async function connectMockDB(): Promise<mongoose.Connection> {
   }
 
   try {
-    // Remove trailing slash from MONGODB_URI if present
-    const cleanUri = MONGODB_URI.replace(/\/$/, "")
-    const uri = `${cleanUri}/${MOCK_DB_NAME}`
+    const uri = buildDbUri(MONGODB_URI, MOCK_DB_NAME)
     mockConnection = await mongoose.createConnection(uri).asPromise()
     console.log(`✅ Connected to Mock DB: ${MOCK_DB_NAME}`)
     return mockConnection
@@ -41,9 +56,7 @@ export async function connectRealDB(): Promise<mongoose.Connection> {
   }
 
   try {
-    // Remove trailing slash from MONGODB_URI if present
-    const cleanUri = MONGODB_URI.replace(/\/$/, "")
-    const uri = `${cleanUri}/${REAL_DB_NAME}`
+    const uri = buildDbUri(MONGODB_URI, REAL_DB_NAME)
     realConnection = await mongoose.createConnection(uri).asPromise()
     console.log(`✅ Connected to Real DB: ${REAL_DB_NAME}`)
     return realConnection
